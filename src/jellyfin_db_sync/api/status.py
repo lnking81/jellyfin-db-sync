@@ -1,6 +1,6 @@
 """Status API endpoints for monitoring dashboard."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -71,7 +71,7 @@ def get_start_time() -> datetime:
     """Get or initialize the service start time."""
     global _start_time
     if _start_time is None:
-        _start_time = datetime.now(timezone.utc)
+        _start_time = datetime.now(datetime.UTC)
     return _start_time
 
 
@@ -133,7 +133,7 @@ async def get_status(request: Request) -> OverallStatus:
         status = "unhealthy"
 
     start_time = get_start_time()
-    uptime = (datetime.now(timezone.utc) - start_time).total_seconds()
+    uptime = (datetime.now(datetime.UTC) - start_time).total_seconds()
 
     return OverallStatus(
         status=status,

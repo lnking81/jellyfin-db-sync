@@ -158,7 +158,9 @@ class Database:
                 )
         return mappings
 
-    async def upsert_user_mapping(self, username: str, server_name: str, jellyfin_user_id: str) -> UserMapping:
+    async def upsert_user_mapping(
+        self, username: str, server_name: str, jellyfin_user_id: str
+    ) -> UserMapping:
         """Insert or update a user mapping."""
         assert self._db is not None
 
@@ -287,7 +289,8 @@ class Database:
         assert self._db is not None
 
         # Get event data for logging before deletion
-        async with self._db.execute("SELECT * FROM pending_events WHERE id = ?", (event_id,)) as cursor:
+        query = "SELECT * FROM pending_events WHERE id = ?"
+        async with self._db.execute(query, (event_id,)) as cursor:
             row = await cursor.fetchone()
             if row:
                 # Log successful sync
@@ -310,10 +313,12 @@ class Database:
         assert self._db is not None
 
         # Get current retry count
-        async with self._db.execute(
-            "SELECT retry_count, max_retries, event_type, source_server, target_server, username, item_id FROM pending_events WHERE id = ?",
-            (event_id,),
-        ) as cursor:
+        query = """
+            SELECT retry_count, max_retries, event_type, source_server,
+                   target_server, username, item_id
+            FROM pending_events WHERE id = ?
+        """
+        async with self._db.execute(query, (event_id,)) as cursor:
             row = await cursor.fetchone()
             if not row:
                 return
@@ -400,8 +405,12 @@ class Database:
             retry_count=row["retry_count"],
             max_retries=row["max_retries"],
             last_error=row["last_error"],
-            item_not_found_count=row["item_not_found_count"] if "item_not_found_count" in row.keys() else 0,
-            item_not_found_max=row["item_not_found_max"] if "item_not_found_max" in row.keys() else 0,
+            item_not_found_count=(
+                row["item_not_found_count"] if "item_not_found_count" in row else 0
+            ),
+            item_not_found_max=(
+                row["item_not_found_max"] if "item_not_found_max" in row else 0
+            ),
             created_at=(
                 row["created_at"]
                 if isinstance(row["created_at"], datetime)
