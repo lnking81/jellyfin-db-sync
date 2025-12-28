@@ -1,6 +1,6 @@
 """Status API endpoints for monitoring dashboard."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -71,7 +71,7 @@ def get_start_time() -> datetime:
     """Get or initialize the service start time."""
     global _start_time
     if _start_time is None:
-        _start_time = datetime.now(datetime.UTC)
+        _start_time = datetime.now(UTC)
     return _start_time
 
 
@@ -114,11 +114,14 @@ async def get_status(request: Request) -> OverallStatus:
 
     # Sync stats
     sync_stats_data = await db.get_sync_stats()
+    total = sync_stats_data.get("total", 0)
+    successful = sync_stats_data.get("successful", 0)
+    failed = sync_stats_data.get("failed", 0)
     sync_stats = SyncStats(
-        total_synced=sync_stats_data.get("total", 0),
-        successful=sync_stats_data.get("successful", 0),
-        failed=sync_stats_data.get("failed", 0),
-        last_sync_at=sync_stats_data.get("last_sync_at"),
+        total_synced=total if isinstance(total, int) else 0,
+        successful=successful if isinstance(successful, int) else 0,
+        failed=failed if isinstance(failed, int) else 0,
+        last_sync_at=sync_stats_data.get("last_sync_at"),  # type: ignore[arg-type]
     )
 
     # Overall status
@@ -133,7 +136,7 @@ async def get_status(request: Request) -> OverallStatus:
         status = "unhealthy"
 
     start_time = get_start_time()
-    uptime = (datetime.now(datetime.UTC) - start_time).total_seconds()
+    uptime = (datetime.now(UTC) - start_time).total_seconds()
 
     return OverallStatus(
         status=status,

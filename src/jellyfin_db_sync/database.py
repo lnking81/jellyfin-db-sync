@@ -1,7 +1,7 @@
 """SQLite database operations for user mappings and event queue."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import aiosqlite
 
@@ -158,9 +158,7 @@ class Database:
                 )
         return mappings
 
-    async def upsert_user_mapping(
-        self, username: str, server_name: str, jellyfin_user_id: str
-    ) -> UserMapping:
+    async def upsert_user_mapping(self, username: str, server_name: str, jellyfin_user_id: str) -> UserMapping:
         """Insert or update a user mapping."""
         assert self._db is not None
 
@@ -405,12 +403,8 @@ class Database:
             retry_count=row["retry_count"],
             max_retries=row["max_retries"],
             last_error=row["last_error"],
-            item_not_found_count=(
-                row["item_not_found_count"] if "item_not_found_count" in row else 0
-            ),
-            item_not_found_max=(
-                row["item_not_found_max"] if "item_not_found_max" in row else 0
-            ),
+            item_not_found_count=(row["item_not_found_count"] if "item_not_found_count" in row else 0),
+            item_not_found_max=(row["item_not_found_max"] if "item_not_found_max" in row else 0),
             created_at=(
                 row["created_at"]
                 if isinstance(row["created_at"], datetime)
@@ -433,7 +427,7 @@ class Database:
         """Mark event as waiting for item to appear on target server."""
         assert self._db is not None
 
-        next_retry = datetime.now(timezone.utc) + timedelta(seconds=retry_delay_seconds)
+        next_retry = datetime.now(UTC) + timedelta(seconds=retry_delay_seconds)
 
         await self._db.execute(
             """
@@ -454,7 +448,7 @@ class Database:
         """Get events waiting for items to be imported."""
         assert self._db is not None
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         events: list[PendingEvent] = []
 
         async with self._db.execute(

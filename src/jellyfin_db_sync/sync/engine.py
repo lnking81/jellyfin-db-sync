@@ -1,9 +1,10 @@
 """Sync engine for coordinating updates across Jellyfin servers."""
 
 import asyncio
+import contextlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..config import Config, ServerConfig, get_config
@@ -37,7 +38,7 @@ class SyncEngine:
 
     def _should_sync_progress(self, key: str) -> bool:
         """Check if enough time has passed for progress sync (debounce)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         last_sync = self._last_progress_sync.get(key)
 
         if last_sync is None:
@@ -48,7 +49,7 @@ class SyncEngine:
 
     def _update_progress_timestamp(self, key: str) -> None:
         """Update the last progress sync timestamp."""
-        self._last_progress_sync[key] = datetime.now(timezone.utc)
+        self._last_progress_sync[key] = datetime.now(UTC)
 
     # ========== Producer: Webhook → WAL ==========
 
@@ -177,10 +178,8 @@ class SyncEngine:
         self._running = False
         if self._worker_task:
             self._worker_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._worker_task
-            except asyncio.CancelledError:
-                pass
             self._worker_task = None
         logger.info("Sync worker stopped")
 
@@ -437,16 +436,17 @@ class SyncEngine:
             )
 
         # Schedule for retry
+        max_display = max_retries if max_retries != -1 else "∞"
         await db.mark_event_waiting_for_item(
             event_id=event.id,
             max_retries=max_retries,
             retry_delay_seconds=policy.retry_delay_seconds,
-            error_message=f"{error_msg} (attempt {current_count}/{max_retries if max_retries != -1 else '∞'})",
+            error_message=f"{error_msg} (attempt {current_count}/{max_display})",
         )
 
         logger.info(
             f"Item not found, will retry: {event.item_name} on {target_server_name} "
-            f"(attempt {current_count}/{max_retries if max_retries != -1 else '∞'})"
+            f"(attempt {current_count}/{max_display})"
         )
 
         # Return success=True to prevent marking as failed (it's waiting, not failed)

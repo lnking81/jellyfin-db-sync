@@ -41,7 +41,7 @@ async def readyz(request: Request) -> Response:
             )
 
         # Check engine
-        engine: SyncEngine = getattr(request.app.state, "engine", None)
+        engine: SyncEngine | None = getattr(request.app.state, "engine", None)
         if engine is None:
             return Response(
                 content="engine not initialized",

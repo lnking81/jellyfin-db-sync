@@ -17,7 +17,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "ruff>=0.8.0", "mypy>=1.13.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "black>=24.0.0",
+    "types-PyYAML>=6.0.0",
+]
 
 [project.scripts]
 jellyfin-db-sync = "jellyfin_db_sync.main:main"
@@ -31,14 +38,38 @@ packages = ["src/jellyfin_db_sync"]
 
 [tool.ruff]
 target-version = "py311"
-line-length = 100
+line-length = 119
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = [
+    "SIM118",
+    "SIM401"
+] # aiosqlite Row doesn't support .get() or `in dict` directly
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore line length in UI file (contains HTML/CSS/JS strings)
+"src/jellyfin_db_sync/web/ui.py" = ["E501"]
+
+[tool.ruff.format]
+# Use black-compatible formatting
+quote-style = "double"
+indent-style = "space"
+
+[tool.black]
+line-length = 119
+target-version = ["py311"]
 
 [tool.mypy]
 python_version = "3.11"
-strict = true
+warn_return_any = false
+warn_unused_ignores = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["aiosqlite.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

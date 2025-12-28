@@ -1,15 +1,14 @@
 """Main entry point for jellyfin-db-sync."""
 
-import asyncio
 import logging
 import os
 import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
 from .api import health_router, status_router, webhook_router
 from .config import get_config, load_config
@@ -36,7 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting jellyfin-db-sync...")
 
     # Initialize database
-    db = await get_db()
+    await get_db()
     logger.info("Database initialized")
 
     # Sync user mappings on startup
