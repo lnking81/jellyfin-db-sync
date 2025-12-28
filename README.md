@@ -1,5 +1,7 @@
 # jellyfin-db-sync
 
+[![CI](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/ci.yaml/badge.svg)](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/ci.yaml)
+[![Build](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/build.yaml/badge.svg)](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/build.yaml)
 [![Experimental](https://img.shields.io/badge/status-experimental-orange.svg)](https://github.com)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -82,17 +84,29 @@ Bidirectional sync service for multiple Jellyfin instances with WAL-based event 
 1. [**Jellyfin Webhook Plugin**](https://github.com/jellyfin/jellyfin-plugin-webhook) installed on all Jellyfin servers
 2. **API Keys** for each Jellyfin server (Dashboard → API Keys)
 
-### Docker
+### Docker (GHCR)
 
 ```bash
-docker build -t jellyfin-db-sync .
+docker pull ghcr.io/lnking81/jellyfin-db-sync:latest
 
 docker run -d \
   --name jellyfin-db-sync \
   -p 8080:8080 \
   -v $(pwd)/config.yaml:/config/config.yaml:ro \
   -v jellyfin-db-sync-data:/data \
-  jellyfin-db-sync
+  ghcr.io/lnking81/jellyfin-db-sync:latest
+```
+
+Available tags:
+
+- `latest` — latest build from main branch
+- `vX.Y.Z` — specific version (e.g., `v1.0.0`)
+- `sha-XXXXXX` — specific commit
+
+### Build locally
+
+```bash
+docker build -t jellyfin-db-sync .
 ```
 
 ### Kubernetes (Helm)
