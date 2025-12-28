@@ -1,0 +1,58 @@
+# jellyfin-db-sync configuration
+
+# List of Jellyfin servers to synchronize
+servers:
+  - name: wan
+    url: https://jellyfin-wan.example.com
+    api_key: your-api-key-here
+    passwordless: false # Requires password for login
+
+  - name: lan
+    url: https://jellyfin-lan.example.com
+    api_key: your-api-key-here
+    passwordless: true # No password required (home network)
+
+# Sync settings
+sync:
+  # What to synchronize
+  playback_progress: true # Current playback position
+  watched_status: true # Watched/unwatched state
+  favorites: true # Favorite items
+  ratings: true # User ratings
+  playlists: true # User playlists
+
+  # Debounce settings (avoid syncing too frequently during playback)
+  progress_debounce_seconds: 30 # Min interval between progress syncs
+
+  # Worker settings
+  worker_interval_seconds: 5.0 # How often worker checks for pending events
+  max_retries: 5 # Max retries for failed sync operations
+
+# Path sync policy - controls retry behavior for items not found on target
+# Useful when libraries are still being imported on some servers
+# Policy is matched by longest prefix of item's file path
+path_sync_policy:
+  # absent_retry_count: -1 = infinite, 0 = no retry (fail immediately), >0 = specific count
+  - prefix: /mnt/nfs/movies
+    absent_retry_count: 10 # Retry 10 times
+    retry_delay_seconds: 600 # Every 10 minutes
+
+  - prefix: /mnt/nfs/tv
+    absent_retry_count: -1 # Infinite retries
+    retry_delay_seconds: 300 # Every 5 minutes (default)
+
+  - prefix: /mnt/nfs/music
+    absent_retry_count: 0 # No retry, fail immediately
+
+# Database settings
+database:
+  path: /data/jellyfin-db-sync.db # SQLite database path
+
+# Webhook server settings
+server:
+  host: 0.0.0.0
+  port: 8080
+
+# Logging
+logging:
+  level: INFO # DEBUG, INFO, WARNING, ERROR
