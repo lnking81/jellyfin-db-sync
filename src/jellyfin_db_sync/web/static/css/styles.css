@@ -292,6 +292,38 @@ h1 {
   color: var(--accent-yellow);
 }
 
+.color-blue {
+  color: #60a5fa;
+}
+
+/* Cache details */
+.cache-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.cache-server {
+  background: var(--bg-card);
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.cache-server strong {
+  color: #60a5fa;
+}
+
+.cache-empty {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 /* Log controls */
 .log-controls {
   display: flex;

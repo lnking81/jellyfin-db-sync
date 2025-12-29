@@ -49,6 +49,9 @@ class DatabaseStatus(BaseModel):
     user_mappings_count: int
     pending_events_count: int
     sync_log_entries: int
+    item_cache_total: int
+    item_cache_by_server: dict[str, int]
+    database_size_bytes: int
 
 
 class OverallStatus(BaseModel):
@@ -105,11 +108,16 @@ async def get_status(request: Request) -> OverallStatus:
     )
 
     # Database stats
+    item_cache_by_server = await db.get_item_cache_stats()
+    item_cache_total = sum(item_cache_by_server.values())
     db_status = DatabaseStatus(
         connected=db._db is not None,
         user_mappings_count=await db.get_user_mappings_count(),
         pending_events_count=queue.pending_events,
         sync_log_entries=await db.get_sync_log_count(),
+        item_cache_total=item_cache_total,
+        item_cache_by_server=item_cache_by_server,
+        database_size_bytes=db.get_database_size(),
     )
 
     # Sync stats

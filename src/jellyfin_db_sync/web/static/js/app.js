@@ -93,6 +93,14 @@ class Dashboard {
         return `Uptime: ${mins}m`;
     }
 
+    formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
     /**
      * Parse UTC datetime string from API and convert to local Date object.
      * Handles formats: "2025-12-29T05:31:47" or "2025-12-29 05:31:47"
@@ -287,6 +295,25 @@ class Dashboard {
 
         document.getElementById('user-mappings').textContent = database.user_mappings_count;
         document.getElementById('sync-log-count').textContent = database.sync_log_entries;
+
+        // Item cache stats
+        document.getElementById('item-cache-total').textContent = database.item_cache_total || 0;
+
+        // Database size
+        document.getElementById('db-size').textContent = this.formatBytes(database.database_size_bytes || 0);
+
+        // Per-server cache details
+        const cacheDetails = document.getElementById('item-cache-details');
+        if (cacheDetails && database.item_cache_by_server) {
+            const servers = Object.entries(database.item_cache_by_server);
+            if (servers.length > 0) {
+                cacheDetails.innerHTML = servers.map(([server, count]) =>
+                    `<span class="cache-server">${this.escapeHtml(server)}: <strong>${count}</strong></span>`
+                ).join('');
+            } else {
+                cacheDetails.innerHTML = '<span class="cache-empty">No cached items</span>';
+            }
+        }
     }
 
     updateSyncStats(syncStats) {

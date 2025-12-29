@@ -1050,6 +1050,24 @@ class Database:
 
         return stats
 
+    def get_database_size(self) -> int:
+        """Get database file size in bytes."""
+        try:
+            db_path = Path(self.db_path)
+            if db_path.exists():
+                # Main DB + WAL + SHM files
+                total_size = db_path.stat().st_size
+                wal_path = db_path.with_suffix(".db-wal")
+                shm_path = db_path.with_suffix(".db-shm")
+                if wal_path.exists():
+                    total_size += wal_path.stat().st_size
+                if shm_path.exists():
+                    total_size += shm_path.stat().st_size
+                return total_size
+        except OSError:
+            pass
+        return 0
+
 
 # Global database instance
 _db: Database | None = None
