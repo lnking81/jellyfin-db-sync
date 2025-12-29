@@ -1,0 +1,35 @@
+apiVersion: v1
+entries:
+  jellyfin-db-sync:
+  - annotations:
+      artifacthub.io/category: media
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/lnking81/jellyfin-db-sync#readme
+        - name: Source
+          url: https://github.com/lnking81/jellyfin-db-sync
+    apiVersion: v2
+    appVersion: 0.0.1
+    created: "2025-12-29T07:24:17.421711007Z"
+    description: Bidirectional sync service for multiple Jellyfin instances
+    digest: efbef7bffd476f7a01b0e111e1048526e96ddddd5dbd1262d781cc548374c717
+    home: https://github.com/lnking81/jellyfin-db-sync
+    icon: https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg
+    keywords:
+    - jellyfin
+    - media
+    - sync
+    - plex
+    - emby
+    maintainers:
+    - name: lnking81
+      url: https://github.com/lnking81
+    name: jellyfin-db-sync
+    sources:
+    - https://github.com/lnking81/jellyfin-db-sync
+    type: application
+    urls:
+    - https://github.com/lnking81/jellyfin-db-sync/releases/download/jellyfin-db-sync-0.0.1/jellyfin-db-sync-0.0.1.tgz
+    version: 0.0.1
+generated: "2025-12-29T07:24:17.42171821Z"
