@@ -59,5 +59,6 @@ jobs:
         with:
           charts_dir: charts
           skip_existing: true
+          skip_upload: true  # Don't create GitHub releases, only update index
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

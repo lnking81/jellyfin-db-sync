@@ -62,6 +62,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -83,3 +90,39 @@ jobs:
           generate_release_notes: true
           files: |
             .helm-packages/*.tgz
+
+      - name: Update Helm repository index
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          REPO_URL="https://github.com/${{ github.repository }}/releases/download"
+
+          # Checkout gh-pages branch
+          git fetch origin gh-pages:gh-pages || true
+          git worktree add gh-pages-branch gh-pages || {
+            # Create gh-pages if it doesn't exist
+            git checkout --orphan gh-pages
+            git rm -rf .
+            echo "# Helm Chart Repository" > README.md
+            git add README.md
+            git commit -m "Initialize gh-pages branch"
+            git push origin gh-pages
+            git checkout -
+            git fetch origin gh-pages:gh-pages
+            git worktree add gh-pages-branch gh-pages
+          }
+
+          # Copy packaged chart
+          cp .helm-packages/*.tgz gh-pages-branch/
+
+          # Update or create index
+          if [ -f gh-pages-branch/index.yaml ]; then
+            helm repo index gh-pages-branch --url "$REPO_URL/v$VERSION" --merge gh-pages-branch/index.yaml
+          else
+            helm repo index gh-pages-branch --url "$REPO_URL/v$VERSION"
+          fi
+
+          # Commit and push
+          cd gh-pages-branch
+          git add .
+          git commit -m "Update Helm chart index for v$VERSION" || echo "No changes to commit"
+          git push origin gh-pages
