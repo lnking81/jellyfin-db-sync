@@ -403,10 +403,10 @@ class Database:
             return row["count"] if row else 0
 
     async def reset_stale_processing(self, stale_minutes: int = 5) -> int:
-        """Reset events stuck in processing state."""
+        """Reset events stuck in processing state for too long."""
         assert self._db is not None
 
-        stale_time = (datetime.now(UTC) - timedelta(minutes=stale_minutes)).isoformat()
+        stale_time = (datetime.now(UTC) - timedelta(minutes=stale_minutes)).strftime("%Y-%m-%d %H:%M:%S")
 
         cursor = await self._db.execute(
             """
@@ -415,6 +415,23 @@ class Database:
             WHERE status = 'processing' AND updated_at < ?
             """,
             (stale_time,),
+        )
+        await self._db.commit()
+        return cursor.rowcount
+
+    async def reset_all_processing(self) -> int:
+        """Reset ALL events in processing state.
+
+        Called on startup to recover from crashes/restarts.
+        """
+        assert self._db is not None
+
+        cursor = await self._db.execute(
+            """
+            UPDATE pending_events
+            SET status = 'pending', updated_at = CURRENT_TIMESTAMP
+            WHERE status = 'processing'
+            """
         )
         await self._db.commit()
         return cursor.rowcount
@@ -652,7 +669,8 @@ class Database:
         entries: list[dict[str, object]] = []
 
         if since_minutes is not None:
-            since_time = (datetime.now(UTC) - timedelta(minutes=since_minutes)).isoformat()
+            # Use SQLite-compatible format (YYYY-MM-DD HH:MM:SS) without timezone
+            since_time = (datetime.now(UTC) - timedelta(minutes=since_minutes)).strftime("%Y-%m-%d %H:%M:%S")
             query = """
                 SELECT id, event_type, source_server, target_server,
                        username, item_id, success, message, created_at
@@ -713,6 +731,10 @@ async def close_db() -> None:
     global _db
     if _db:
         await _db.close()
+        _db = None
+        _db = None
+        _db = None
+        _db = None
         _db = None
         _db = None
         _db = None

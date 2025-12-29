@@ -73,16 +73,38 @@ class Dashboard {
         return `Uptime: ${mins}m`;
     }
 
-    formatDate(isoString) {
-        if (!isoString) return 'Never';
-        const date = new Date(isoString);
+    /**
+     * Parse UTC datetime string from API and convert to local Date object.
+     * Handles formats: "2025-12-29T05:31:47" or "2025-12-29 05:31:47"
+     */
+    parseUtcDate(dateString) {
+        if (!dateString) return null;
+        // Normalize format and add Z suffix for UTC
+        const normalized = dateString.replace(' ', 'T');
+        // Add Z only if not already present
+        const utcString = normalized.endsWith('Z') ? normalized : normalized + 'Z';
+        return new Date(utcString);
+    }
+
+    formatDate(dateString) {
+        if (!dateString) return 'Never';
+        const date = this.parseUtcDate(dateString);
+        if (!date || isNaN(date.getTime())) return 'Invalid';
         return date.toLocaleString();
     }
 
-    formatDateShort(isoString) {
-        if (!isoString) return 'Never';
-        const date = new Date(isoString);
+    formatDateShort(dateString) {
+        if (!dateString) return 'Never';
+        const date = this.parseUtcDate(dateString);
+        if (!date || isNaN(date.getTime())) return 'Invalid';
         return date.toLocaleDateString();
+    }
+
+    formatTime(dateString) {
+        if (!dateString) return '';
+        const date = this.parseUtcDate(dateString);
+        if (!date || isNaN(date.getTime())) return 'Invalid';
+        return date.toLocaleTimeString();
     }
 
     truncatePath(path) {
@@ -140,13 +162,14 @@ class Dashboard {
         }
 
         const entries = logs.map(log => {
-            const time = new Date(log.created_at).toLocaleTimeString();
+            const time = this.formatTime(log.created_at);
             const icon = log.success ? '✓' : '✗';
             const iconClass = log.success ? 'success' : 'error';
+            const entryClass = log.success ? 'success-entry' : 'error-entry';
             const messageClass = log.success ? '' : 'error';
 
             return `
-                <div class="log-entry">
+                <div class="log-entry ${entryClass}">
                     <div class="log-icon ${iconClass}">${icon}</div>
                     <div class="log-time">${time}</div>
                     <div class="log-content">

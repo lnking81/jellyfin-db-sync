@@ -82,6 +82,10 @@ class WebhookPayload(BaseModel):
     provider_tmdb: str | None = Field(alias="Provider_tmdb", default=None)
     provider_tvdb: str | None = Field(alias="Provider_tvdb", default=None)
 
+    # Save reason (for UserDataSaved events)
+    # Values: PlaybackStart, PlaybackProgress, PlaybackFinished, TogglePlayed, UpdateUserRating, Import, UpdateUserData
+    save_reason: str | None = Field(alias="SaveReason", default=None)
+
     model_config = {"populate_by_name": True}
 
 

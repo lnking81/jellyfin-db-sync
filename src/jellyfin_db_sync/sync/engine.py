@@ -315,6 +315,15 @@ class SyncEngine:
                     self._update_progress_timestamp(debounce_key)
 
         elif payload.event == "UserDataSaved":
+            # Skip Import events - these are bulk operations (migration, restore, etc.)
+            # that should not trigger sync to avoid flooding the queue
+            if payload.save_reason == "Import":
+                logger.debug(
+                    "[PARSE] Skipping Import event for %s (bulk operation)",
+                    payload.item_name,
+                )
+                return events
+
             # Handle user data changes (watched status, favorites, etc.)
             # Smart sync: actual value check happens in _execute_sync()
             # to only sync when target state differs from source
@@ -390,6 +399,12 @@ class SyncEngine:
         if self._running:
             return
 
+        # Reset any events stuck in processing from previous run
+        db = await get_db()
+        reset_count = await db.reset_all_processing()
+        if reset_count > 0:
+            logger.info("Reset %d events stuck in processing from previous run", reset_count)
+
         self._running = True
         self._worker_task = asyncio.create_task(self._worker_loop(interval_seconds))
         logger.info("Sync worker started")
@@ -429,37 +444,52 @@ class SyncEngine:
 
             await asyncio.sleep(interval_seconds)
 
-    async def process_pending_events(self, limit: int = 100) -> int:
-        """Process pending events from the queue. Returns number processed."""
+    async def process_pending_events(self, limit: int = 100, max_concurrent: int = 10) -> int:
+        """Process pending events from the queue. Returns number processed.
+
+        Args:
+            limit: Maximum number of events to fetch
+            max_concurrent: Maximum number of events to process in parallel
+        """
         db = await get_db()
         events = await db.get_pending_events(limit=limit)
 
         if not events:
             return 0
 
-        processed = 0
+        # Mark all as processing first
         for event in events:
-            # Mark as processing
             assert event.id is not None
             await db.mark_event_processing(event.id)
 
-            # Try to sync
-            result = await self._sync_event(event)
+        # Process in parallel with semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(max_concurrent)
 
-            if result.success:
-                await db.mark_event_completed(event.id)
-            else:
-                await db.mark_event_failed(event.id, result.message)
+        async def process_one(event: PendingEvent) -> bool:
+            async with semaphore:
+                result = await self._sync_event(event)
+                assert event.id is not None
+                if result.success:
+                    await db.mark_event_completed(event.id)
+                else:
+                    await db.mark_event_failed(event.id, result.message)
+                return result.success
 
-            processed += 1
+        results = await asyncio.gather(*[process_one(e) for e in events], return_exceptions=True)
 
+        # Count successful (non-exception) results
+        processed = sum(1 for r in results if not isinstance(r, Exception))
         return processed
 
-    async def process_waiting_for_item_events(self, limit: int = 50) -> int:
+    async def process_waiting_for_item_events(self, limit: int = 50, max_concurrent: int = 10) -> int:
         """Process events that are waiting for items to appear.
 
         These are events where the item wasn't found on target server,
         but path_sync_policy allows retrying.
+
+        Args:
+            limit: Maximum number of events to fetch
+            max_concurrent: Maximum number of events to process in parallel
         """
         db = await get_db()
         events = await db.get_waiting_for_item_events(limit=limit)
@@ -467,24 +497,32 @@ class SyncEngine:
         if not events:
             return 0
 
-        processed = 0
+        # Mark all as processing first
         for event in events:
             assert event.id is not None
             await db.mark_event_processing(event.id)
 
-            # Try to sync again
-            result = await self._sync_event(event)
+        # Process in parallel with semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(max_concurrent)
 
-            if result.success:
-                # Check if it was actually synced or just re-queued for waiting
-                if "Waiting for item" not in result.message:
-                    await db.mark_event_completed(event.id)
-                # Otherwise it's already marked as waiting_for_item by _handle_item_not_found
-            else:
-                await db.mark_event_failed(event.id, result.message)
+        async def process_one(event: PendingEvent) -> bool:
+            async with semaphore:
+                result = await self._sync_event(event)
+                assert event.id is not None
+                if result.success:
+                    # Check if it was actually synced or just re-queued for waiting
+                    if "Waiting for item" not in result.message:
+                        await db.mark_event_completed(event.id)
+                    # Otherwise it's already marked as waiting_for_item by _handle_item_not_found
+                    return True
+                else:
+                    await db.mark_event_failed(event.id, result.message)
+                    return False
 
-            processed += 1
+        results = await asyncio.gather(*[process_one(e) for e in events], return_exceptions=True)
 
+        # Count successful (non-exception) results
+        processed = sum(1 for r in results if not isinstance(r, Exception))
         return processed
 
     async def _sync_event(self, event: PendingEvent) -> SyncResult:
