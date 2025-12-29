@@ -1,5 +1,6 @@
 """SQLite database operations for user mappings and event queue."""
 
+import contextlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -90,12 +91,20 @@ class Database:
                 target_server TEXT NOT NULL,
                 username TEXT NOT NULL,
                 item_id TEXT,
+                item_name TEXT,
+                synced_value TEXT,
                 success BOOLEAN NOT NULL,
                 message TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
+
+        # Migration: add item_name and synced_value columns if they don't exist
+        with contextlib.suppress(Exception):
+            await self._db.execute("ALTER TABLE sync_log ADD COLUMN item_name TEXT")
+        with contextlib.suppress(Exception):
+            await self._db.execute("ALTER TABLE sync_log ADD COLUMN synced_value TEXT")
 
         # Pending events table (WAL for sync operations)
         await self._db.execute(
@@ -131,6 +140,29 @@ class Database:
             """
             CREATE INDEX IF NOT EXISTS idx_pending_events_status
             ON pending_events(status, next_retry_at)
+        """
+        )
+
+        # Item path cache table - maps file path to Jellyfin item ID per server
+        await self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS item_path_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_name TEXT NOT NULL,
+                item_path TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                item_name TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(server_name, item_path)
+            )
+        """
+        )
+
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_item_path_cache_path
+            ON item_path_cache(server_name, item_path)
         """
         )
 
@@ -226,6 +258,8 @@ class Database:
         item_id: str | None,
         success: bool,
         message: str,
+        item_name: str | None = None,
+        synced_value: str | None = None,
     ) -> None:
         """Log a sync operation."""
         assert self._db is not None
@@ -233,10 +267,10 @@ class Database:
         await self._db.execute(
             """
             INSERT INTO sync_log
-            (event_type, source_server, target_server, username, item_id, success, message)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (event_type, source_server, target_server, username, item_id, item_name, synced_value, success, message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (event_type, source_server, target_server, username, item_id, success, message),
+            (event_type, source_server, target_server, username, item_id, item_name, synced_value, success, message),
         )
         await self._db.commit()
 
@@ -346,7 +380,7 @@ class Database:
         )
         await self._db.commit()
 
-    async def mark_event_completed(self, event_id: int) -> None:
+    async def mark_event_completed(self, event_id: int, synced_value: str | None = None) -> None:
         """Remove a successfully processed event."""
         assert self._db is not None
 
@@ -364,6 +398,8 @@ class Database:
                     item_id=row["item_id"],
                     success=True,
                     message="Synced successfully",
+                    item_name=row["item_name"],
+                    synced_value=synced_value,
                 )
 
         # Delete from pending
@@ -377,7 +413,7 @@ class Database:
         # Get current retry count
         query = """
             SELECT retry_count, max_retries, event_type, source_server,
-                   target_server, username, item_id
+                   target_server, username, item_id, item_name
             FROM pending_events WHERE id = ?
         """
         async with self._db.execute(query, (event_id,)) as cursor:
@@ -398,6 +434,7 @@ class Database:
                     item_id=row["item_id"],
                     success=False,
                     message=f"Failed after {retry_count} retries: {error}",
+                    item_name=row["item_name"],
                 )
                 await self._db.execute("DELETE FROM pending_events WHERE id = ?", (event_id,))
             else:
@@ -685,38 +722,66 @@ class Database:
         await self._db.commit()
         return cursor.rowcount > 0
 
-    async def get_recent_sync_log(self, limit: int = 100, since_minutes: int | None = None) -> list[dict[str, object]]:
-        """Get recent sync log entries.
+    async def get_recent_sync_log(
+        self,
+        limit: int = 100,
+        since_minutes: int | None = None,
+        source_server: str | None = None,
+        target_server: str | None = None,
+        event_type: str | None = None,
+        item_name: str | None = None,
+    ) -> list[dict[str, object]]:
+        """Get recent sync log entries with optional filtering.
 
         Args:
             limit: Maximum number of entries to return
             since_minutes: Only return entries from the last N minutes (default: all)
+            source_server: Filter by source server name (exact match)
+            target_server: Filter by target server name (exact match)
+            event_type: Filter by event type (exact match)
+            item_name: Filter by item name (case-insensitive substring search)
         """
         assert self._db is not None
 
         entries: list[dict[str, object]] = []
+        conditions: list[str] = []
+        params: list[object] = []
 
+        # Time filter
         if since_minutes is not None:
-            # Use SQLite-compatible format (YYYY-MM-DD HH:MM:SS) without timezone
             since_time = (datetime.now(UTC) - timedelta(minutes=since_minutes)).strftime("%Y-%m-%d %H:%M:%S")
-            query = """
-                SELECT id, event_type, source_server, target_server,
-                       username, item_id, success, message, created_at
-                FROM sync_log
-                WHERE created_at >= ?
-                ORDER BY created_at DESC
-                LIMIT ?
-            """
-            params: tuple[str, int] | tuple[int,] = (since_time, limit)
-        else:
-            query = """
-                SELECT id, event_type, source_server, target_server,
-                       username, item_id, success, message, created_at
-                FROM sync_log
-                ORDER BY created_at DESC
-                LIMIT ?
-            """
-            params = (limit,)
+            conditions.append("created_at >= ?")
+            params.append(since_time)
+
+        # Server filters
+        if source_server:
+            conditions.append("source_server = ?")
+            params.append(source_server)
+        if target_server:
+            conditions.append("target_server = ?")
+            params.append(target_server)
+
+        # Event type filter
+        if event_type:
+            conditions.append("event_type = ?")
+            params.append(event_type)
+
+        # Item name filter (LIKE for substring search)
+        if item_name:
+            conditions.append("item_name LIKE ?")
+            params.append(f"%{item_name}%")
+
+        # Build query
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        query = f"""
+            SELECT id, event_type, source_server, target_server,
+                   username, item_id, item_name, synced_value, success, message, created_at
+            FROM sync_log
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ?
+        """
+        params.append(limit)
 
         async with self._db.execute(query, params) as cursor:
             async for row in cursor:
@@ -728,6 +793,8 @@ class Database:
                         "target_server": row["target_server"],
                         "username": row["username"],
                         "item_id": row["item_id"],
+                        "item_name": row["item_name"],
+                        "synced_value": row["synced_value"],
                         "success": bool(row["success"]),
                         "message": row["message"],
                         "created_at": (
@@ -739,6 +806,77 @@ class Database:
                 )
 
         return entries
+
+    # ========== Item Path Cache Methods ==========
+
+    async def get_cached_item_id(self, server_name: str, item_path: str) -> str | None:
+        """Get cached item ID for a path on a server."""
+        assert self._db is not None
+
+        async with self._db.execute(
+            """
+            SELECT item_id FROM item_path_cache
+            WHERE server_name = ? AND item_path = ?
+            """,
+            (server_name, item_path),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["item_id"] if row else None
+
+    async def cache_item_path(
+        self,
+        server_name: str,
+        item_path: str,
+        item_id: str,
+        item_name: str | None = None,
+    ) -> None:
+        """Cache a path to item ID mapping."""
+        assert self._db is not None
+
+        await self._db.execute(
+            """
+            INSERT INTO item_path_cache (server_name, item_path, item_id, item_name, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(server_name, item_path)
+            DO UPDATE SET item_id = excluded.item_id,
+                          item_name = excluded.item_name,
+                          updated_at = CURRENT_TIMESTAMP
+            """,
+            (server_name, item_path, item_id, item_name),
+        )
+        await self._db.commit()
+
+    async def invalidate_item_cache(self, server_name: str, item_path: str | None = None) -> int:
+        """Invalidate cached items. If item_path is None, invalidate all for server."""
+        assert self._db is not None
+
+        if item_path:
+            cursor = await self._db.execute(
+                "DELETE FROM item_path_cache WHERE server_name = ? AND item_path = ?",
+                (server_name, item_path),
+            )
+        else:
+            cursor = await self._db.execute(
+                "DELETE FROM item_path_cache WHERE server_name = ?",
+                (server_name,),
+            )
+        await self._db.commit()
+        return cursor.rowcount
+
+    async def get_item_cache_count(self, server_name: str | None = None) -> int:
+        """Get count of cached items."""
+        assert self._db is not None
+
+        if server_name:
+            query = "SELECT COUNT(*) as count FROM item_path_cache WHERE server_name = ?"
+            params: tuple[str, ...] = (server_name,)
+        else:
+            query = "SELECT COUNT(*) as count FROM item_path_cache"
+            params = ()
+
+        async with self._db.execute(query, params) as cursor:
+            row = await cursor.fetchone()
+            return row["count"] if row else 0
 
 
 # Global database instance

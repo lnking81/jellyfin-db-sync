@@ -50,12 +50,32 @@ class Dashboard {
 
     async fetchSyncLog() {
         try {
-            const filterEl = document.getElementById('log-time-filter');
-            const sinceMinutes = filterEl ? filterEl.value : '30';
-            const url = sinceMinutes
-                ? `/api/sync-log?limit=100&since_minutes=${sinceMinutes}`
-                : '/api/sync-log?limit=100';
-            const response = await fetch(url);
+            const timeFilter = document.getElementById('log-time-filter');
+            const sourceFilter = document.getElementById('log-source-filter');
+            const targetFilter = document.getElementById('log-target-filter');
+            const typeFilter = document.getElementById('log-type-filter');
+            const itemFilter = document.getElementById('log-item-filter');
+
+            const params = new URLSearchParams();
+            params.append('limit', '100');
+
+            if (timeFilter && timeFilter.value) {
+                params.append('since_minutes', timeFilter.value);
+            }
+            if (sourceFilter && sourceFilter.value) {
+                params.append('source_server', sourceFilter.value);
+            }
+            if (targetFilter && targetFilter.value) {
+                params.append('target_server', targetFilter.value);
+            }
+            if (typeFilter && typeFilter.value) {
+                params.append('event_type', typeFilter.value);
+            }
+            if (itemFilter && itemFilter.value.trim()) {
+                params.append('item_name', itemFilter.value.trim());
+            }
+
+            const response = await fetch(`/api/sync-log?${params.toString()}`);
             return await response.json();
         } catch (e) {
             console.error('Failed to fetch sync log:', e);
@@ -136,10 +156,11 @@ class Dashboard {
 
         // Uptime and version
         document.getElementById('uptime').textContent = this.formatUptime(status.uptime_seconds);
-        document.getElementById('version').textContent = `v${status.version}`;
+        document.getElementById('version').textContent = `${status.version}`;
 
         // Servers
         this.updateServers(status.servers);
+        this.updateServerFilters(status.servers);
 
         // Queue stats
         this.updateQueueStats(status.queue);
@@ -169,6 +190,18 @@ class Dashboard {
             const entryClass = log.success ? 'success-entry' : 'error-entry';
             const messageClass = log.success ? '' : 'error';
 
+            // Build item info display
+            const itemName = log.item_name ? this.escapeHtml(log.item_name) : '';
+            const syncedValue = log.synced_value ? this.escapeHtml(log.synced_value) : '';
+            const itemInfo = itemName ? `<span class="log-item">${itemName}</span>` : '';
+
+            // Detect if this was a skip (already set) vs actual sync
+            const isSkipped = syncedValue.includes('already set') ||
+                syncedValue.includes('target >=') ||
+                syncedValue.includes('target newer');
+            const valueClass = isSkipped ? 'log-value skipped' : 'log-value';
+            const valueInfo = syncedValue ? `<span class="${valueClass}">${syncedValue}</span>` : '';
+
             return `
                 <div class="log-entry ${entryClass}">
                     <div class="log-icon ${iconClass}">${icon}</div>
@@ -178,14 +211,41 @@ class Dashboard {
                             <span class="log-type">${this.escapeHtml(log.event_type)}</span>
                             <span class="log-flow">${this.escapeHtml(log.source_server)} → ${this.escapeHtml(log.target_server)}</span>
                             <span class="log-user">@${this.escapeHtml(log.username)}</span>
+                            ${itemInfo}
                         </div>
-                        <div class="log-message ${messageClass}">${this.escapeHtml(log.message)}</div>
+                        <div class="log-details">
+                            ${valueInfo}
+                            <span class="log-message ${messageClass}">${this.escapeHtml(log.message)}</span>
+                        </div>
                     </div>
                 </div>
             `;
         }).join('');
 
         container.innerHTML = `<div class="log-container">${entries}</div>`;
+    }
+
+    updateServerFilters(servers) {
+        const sourceFilter = document.getElementById('log-source-filter');
+        const targetFilter = document.getElementById('log-target-filter');
+
+        if (!sourceFilter || !targetFilter) return;
+
+        // Preserve current selections
+        const currentSource = sourceFilter.value;
+        const currentTarget = targetFilter.value;
+
+        // Update options
+        const serverOptions = servers.map(s =>
+            `<option value="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</option>`
+        ).join('');
+
+        sourceFilter.innerHTML = '<option value="">All sources</option>' + serverOptions;
+        targetFilter.innerHTML = '<option value="">All targets</option>' + serverOptions;
+
+        // Restore selections
+        sourceFilter.value = currentSource;
+        targetFilter.value = currentTarget;
     }
 
     updateServers(servers) {

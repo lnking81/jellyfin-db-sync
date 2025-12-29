@@ -151,50 +151,127 @@ class JellyfinClient:
 
     # ========== Item Lookup ==========
 
-    async def find_item_by_path(
-        self,
-        user_id: str,
-        path: str,
-    ) -> dict[str, Any] | None:
+    async def find_item_by_path(self, path: str, db: Any = None) -> dict[str, Any] | None:
         """
         Find an item by its file path.
 
         This is the most reliable method when all Jellyfin instances
         share the same storage (NFS/CIFS mount). Works for all content
         including home photos/videos that don't have provider IDs.
+
+        Strategy:
+        1. Check local DB cache first (path -> item_id)
+        2. If not in cache, refresh cache from server and try again
+        3. Cache all items for future lookups
+
+        Args:
+            path: File path to search for
+            db: Database instance for caching (optional, imported if not provided)
         """
+        # Get database for caching
+        if db is None:
+            from ..database import get_db
+
+            db = await get_db()
+
+        # Check cache first
+        cached_id = await db.get_cached_item_id(self.server.name, path)
+        if cached_id:
+            logger.debug("Cache hit for path %s -> %s", path, cached_id)
+            # Verify item still exists and get full info
+            try:
+                response = await self._request(
+                    "GET",
+                    f"/Items/{cached_id}",
+                    params={"fields": "Path,ProviderIds"},
+                )
+                item = response.json()
+                # Verify path still matches (item could have been moved)
+                if item.get("Path") == path:
+                    return item
+                else:
+                    # Path changed, invalidate cache entry
+                    await db.invalidate_item_cache(self.server.name, path)
+            except httpx.HTTPStatusError:
+                # Item no longer exists, invalidate cache entry
+                await db.invalidate_item_cache(self.server.name, path)
+
+        # Cache miss - refresh cache from server (new items may have been added)
+        logger.debug("Cache miss for %s, refreshing from server...", path)
+
+        return await self._refresh_cache_and_find(path, db)
+
+    async def _refresh_cache_and_find(self, path: str, db: Any) -> dict[str, Any] | None:
+        """Refresh item cache from server and find item by path."""
         try:
-            response = await self._request(
-                "GET",
-                "/Items",
-                params={
-                    "userId": user_id,
-                    "path": path,
-                    "recursive": "true",
-                    "limit": 1,
-                },
-            )
-            data = response.json()
-            items = data.get("Items", [])
-            if items:
-                return items[0]
+            # Jellyfin API has NO path search parameter
+            # We must get all items and filter locally
+            # Use includeItemTypes to limit to actual media files
+            all_items: list[dict[str, Any]] = []
+            start_index = 0
+            page_size = 500
+
+            while True:
+                response = await self._request(
+                    "GET",
+                    "/Items",
+                    params={
+                        "recursive": "true",
+                        "fields": "Path,ProviderIds",
+                        "includeItemTypes": "Movie,Episode,Video,Audio,MusicVideo",
+                        "startIndex": start_index,
+                        "limit": page_size,
+                    },
+                )
+                data = response.json()
+                items = data.get("Items", [])
+                total = data.get("TotalRecordCount", 0)
+
+                all_items.extend(items)
+
+                # Check if we got all items
+                if start_index + len(items) >= total:
+                    break
+                start_index += page_size
+
+            logger.info("Fetched %d items from %s, updating cache...", len(all_items), self.server.name)
+
+            # Cache ALL items with paths for future lookups
+            found_item: dict[str, Any] | None = None
+            for item in all_items:
+                item_path = item.get("Path", "")
+                if item_path:
+                    item_id = item.get("Id", "")
+                    item_name = item.get("Name", "")
+                    await db.cache_item_path(self.server.name, item_path, item_id, item_name)
+                    if item_path == path:
+                        found_item = item
+
+            if found_item:
+                logger.debug("Found item by path: %s -> %s", path, found_item.get("Id"))
+                return found_item
+
+            logger.debug("Item not found with path: %s", path)
+
         except httpx.HTTPStatusError as e:
-            logger.debug("Item not found by path %s: %s", path, e)
+            logger.error("Failed to fetch items from %s: %s", self.server.name, e)
+
         return None
 
     async def find_item_by_provider_id(
         self,
-        user_id: str,
         imdb_id: str | None = None,
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Find an item by external provider ID."""
         # Build search params with available provider IDs
+        # Note: searching without userId gives better results
+        # Exclude BoxSet/collections which share provider IDs with actual media
         params: dict[str, Any] = {
-            "userId": user_id,
             "recursive": "true",
-            "fields": "ProviderIds",
+            "fields": "ProviderIds,Path",
+            "excludeItemTypes": "BoxSet,Folder,CollectionFolder",
             "limit": 1,
         }
 

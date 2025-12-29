@@ -34,9 +34,12 @@ class TestClientInitialization:
         assert client.server == server_config
 
     def test_client_headers(self, client):
-        """Test that headers include API key."""
-        assert "X-Emby-Token" in client.headers
-        assert client.headers["X-Emby-Token"] == "test-api-key"
+        """Test that headers include Authorization with MediaBrowser format."""
+        assert "Authorization" in client.headers
+        auth_header = client.headers["Authorization"]
+        assert "MediaBrowser" in auth_header
+        assert 'Client="jellyfin-db-sync"' in auth_header
+        assert 'Token="test-api-key"' in auth_header
         assert client.headers["Content-Type"] == "application/json"
 
     def test_client_strips_trailing_slash(self):
@@ -135,8 +138,17 @@ class TestUserOperations:
 class TestItemLookup:
     """Test item lookup operations."""
 
+    @pytest.fixture
+    def mock_db(self):
+        """Create mock database for item caching."""
+        db = AsyncMock()
+        db.get_cached_item_id = AsyncMock(return_value=None)
+        db.cache_item_path = AsyncMock()
+        db.invalidate_item_cache = AsyncMock()
+        return db
+
     @pytest.mark.asyncio
-    async def test_find_item_by_path(self, client):
+    async def test_find_item_by_path(self, client, mock_db):
         """Test finding item by file path."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -148,16 +160,38 @@ class TestItemLookup:
         with patch.object(client, "_request", new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            item = await client.find_item_by_path("user-1", "/movies/test.mkv")
+            item = await client.find_item_by_path("/movies/test.mkv", db=mock_db)
 
         assert item is not None
         assert item["Id"] == "item-123"
-        mock_request.assert_called_once()
-        call_kwargs = mock_request.call_args
-        assert call_kwargs[1]["params"]["path"] == "/movies/test.mkv"
+        # Should have cached the item
+        mock_db.cache_item_path.assert_called()
 
     @pytest.mark.asyncio
-    async def test_find_item_by_path_not_found(self, client):
+    async def test_find_item_by_path_cache_hit(self, client, mock_db):
+        """Test finding item by path when cached."""
+        mock_db.get_cached_item_id.return_value = "cached-item-123"
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "Id": "cached-item-123",
+            "Name": "Cached Movie",
+            "Path": "/movies/cached.mkv",
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(client, "_request", new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            item = await client.find_item_by_path("/movies/cached.mkv", db=mock_db)
+
+        assert item is not None
+        assert item["Id"] == "cached-item-123"
+        # Should have looked up in cache
+        mock_db.get_cached_item_id.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_find_item_by_path_not_found(self, client, mock_db):
         """Test item not found by path."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"Items": [], "TotalRecordCount": 0}
@@ -166,12 +200,12 @@ class TestItemLookup:
         with patch.object(client, "_request", new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            item = await client.find_item_by_path("user-1", "/movies/nonexistent.mkv")
+            item = await client.find_item_by_path("/movies/nonexistent.mkv", db=mock_db)
 
         assert item is None
 
     @pytest.mark.asyncio
-    async def test_find_item_by_path_http_error(self, client):
+    async def test_find_item_by_path_http_error(self, client, mock_db):
         """Test handling HTTP error when searching by path."""
         with patch.object(client, "_request", new_callable=AsyncMock) as mock_request:
             mock_request.side_effect = httpx.HTTPStatusError(
@@ -180,7 +214,7 @@ class TestItemLookup:
                 response=MagicMock(status_code=404),
             )
 
-            item = await client.find_item_by_path("user-1", "/movies/error.mkv")
+            item = await client.find_item_by_path("/movies/error.mkv", db=mock_db)
 
         assert item is None
 
@@ -197,7 +231,6 @@ class TestItemLookup:
             mock_request.return_value = mock_response
 
             item = await client.find_item_by_provider_id(
-                user_id="user-1",
                 imdb_id="tt1375666",
             )
 
@@ -222,7 +255,6 @@ class TestItemLookup:
             mock_request.side_effect = [mock_response_empty, mock_response_found]
 
             item = await client.find_item_by_provider_id(
-                user_id="user-1",
                 imdb_id="tt0000000",
                 tmdb_id="12345",
             )

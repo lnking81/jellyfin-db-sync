@@ -264,7 +264,7 @@ class TestSyncExecution:
         mock_client.get_user_data = AsyncMock(return_value={"Played": False, "IsFavorite": False})
 
         # Test mark as played
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -273,12 +273,13 @@ class TestSyncExecution:
         )
 
         assert result is True
+        assert synced_value == "played=True"
         mock_client.mark_played.assert_called_once_with("target-user-id", "target-item-id")
 
         # Test mark as unplayed (target has Played=True)
         mock_client.mark_played.reset_mock()
         mock_client.get_user_data = AsyncMock(return_value={"Played": True, "IsFavorite": False})
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -287,6 +288,7 @@ class TestSyncExecution:
         )
 
         assert result is True
+        assert synced_value == "played=False"
         mock_client.mark_unplayed.assert_called_once_with("target-user-id", "target-item-id")
 
     @pytest.mark.asyncio
@@ -301,7 +303,7 @@ class TestSyncExecution:
         mock_client.get_user_data = AsyncMock(return_value={"Played": False, "IsFavorite": False})
 
         # Test add favorite
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -310,12 +312,13 @@ class TestSyncExecution:
         )
 
         assert result is True
+        assert synced_value == "favorite=True"
         mock_client.add_favorite.assert_called_once()
 
         # Test remove favorite (target has IsFavorite=True)
         mock_client.add_favorite.reset_mock()
         mock_client.get_user_data = AsyncMock(return_value={"Played": False, "IsFavorite": True})
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -324,6 +327,7 @@ class TestSyncExecution:
         )
 
         assert result is True
+        assert synced_value == "favorite=False"
         mock_client.remove_favorite.assert_called_once()
 
     @pytest.mark.asyncio
@@ -335,7 +339,7 @@ class TestSyncExecution:
         mock_client.update_playback_progress = AsyncMock(return_value=True)
         mock_client.get_user_data = AsyncMock(return_value={"PlaybackPositionTicks": 0})
 
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -344,6 +348,7 @@ class TestSyncExecution:
         )
 
         assert result is True
+        assert synced_value == "position=1:00:00"
         mock_client.update_playback_progress.assert_called_once_with("target-user-id", "target-item-id", 36000000000)
 
     @pytest.mark.asyncio
@@ -357,7 +362,7 @@ class TestSyncExecution:
         # Target already has Played=True, and we want to set is_played=True
         mock_client.get_user_data = AsyncMock(return_value={"Played": True, "IsFavorite": False})
 
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -367,6 +372,7 @@ class TestSyncExecution:
 
         # Should succeed but NOT call mark_played (already in sync)
         assert result is True
+        assert "already set" in synced_value
         mock_client.mark_played.assert_not_called()
         mock_client.mark_unplayed.assert_not_called()
 
@@ -381,7 +387,7 @@ class TestSyncExecution:
         # Target already has IsFavorite=False, and we want to set is_favorite=False
         mock_client.get_user_data = AsyncMock(return_value={"Played": False, "IsFavorite": False})
 
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -391,6 +397,7 @@ class TestSyncExecution:
 
         # Should succeed but NOT call remove_favorite (already in sync)
         assert result is True
+        assert "already set" in synced_value
         mock_client.add_favorite.assert_not_called()
         mock_client.remove_favorite.assert_not_called()
 
@@ -404,7 +411,7 @@ class TestSyncExecution:
         # get_user_data fails/returns None
         mock_client.get_user_data = AsyncMock(return_value=None)
 
-        result = await engine._execute_sync(
+        result, synced_value = await engine._execute_sync(
             client=mock_client,
             user_id="target-user-id",
             item_id="target-item-id",
@@ -414,6 +421,7 @@ class TestSyncExecution:
 
         # Should still proceed with sync
         assert result is True
+        assert synced_value == "played=True"
         mock_client.mark_played.assert_called_once()
 
 

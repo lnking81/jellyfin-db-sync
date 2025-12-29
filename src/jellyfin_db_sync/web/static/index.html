@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <div>
-                <h1>🔄 Jellyfin DB Sync <span class="version" id="version"></span></h1>
+                <h1>🔄 Jellyfin DB Sync<span class="version" id="version"></span></h1>
                 <span class="uptime" id="uptime">Loading...</span>
             </div>
             <div class="header-controls">
@@ -140,6 +140,25 @@
                 <div class="card-header">
                     <h2>📜 Sync Log</h2>
                     <div class="log-controls">
+                        <input type="text" id="log-item-filter" placeholder="Search media..." class="log-filter-input" onchange="refreshData()">
+                        <select id="log-source-filter" onchange="refreshData()">
+                            <option value="">All sources</option>
+                        </select>
+                        <select id="log-target-filter" onchange="refreshData()">
+                            <option value="">All targets</option>
+                        </select>
+                        <select id="log-type-filter" onchange="refreshData()">
+                            <option value="">All types</option>
+                            <option value="watched">watched</option>
+                            <option value="favorite">favorite</option>
+                            <option value="likes">likes</option>
+                            <option value="play_count">play_count</option>
+                            <option value="last_played">last_played</option>
+                            <option value="audio_stream">audio_stream</option>
+                            <option value="subtitle_stream">subtitle_stream</option>
+                            <option value="progress">progress</option>
+                            <option value="rating">rating</option>
+                        </select>
                         <select id="log-time-filter" onchange="refreshData()">
                             <option value="30">Last 30 min</option>
                             <option value="60">Last 1 hour</option>

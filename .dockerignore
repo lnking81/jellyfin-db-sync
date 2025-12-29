@@ -34,9 +34,19 @@ htmlcov
 
 # Project specific
 *.db
-*.db-shm
 *.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
 local.db
+local.db-journal
+local.db-wal
+local.db-shm
 config.yaml
 !config.example.yaml
 

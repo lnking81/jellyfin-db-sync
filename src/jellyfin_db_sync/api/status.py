@@ -271,15 +271,33 @@ async def retry_event(event_id: int) -> dict[str, Any]:
 
 
 @router.get("/sync-log")
-async def get_sync_log(limit: int = 100, since_minutes: int | None = None) -> list[dict[str, Any]]:
-    """Get recent sync log entries.
+async def get_sync_log(
+    limit: int = 100,
+    since_minutes: int | None = None,
+    source_server: str | None = None,
+    target_server: str | None = None,
+    event_type: str | None = None,
+    item_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Get recent sync log entries with optional filtering.
 
     Args:
         limit: Maximum number of entries to return
         since_minutes: Only return entries from the last N minutes (default: all)
+        source_server: Filter by source server name (exact match)
+        target_server: Filter by target server name (exact match)
+        event_type: Filter by event type (exact match)
+        item_name: Filter by item name (case-insensitive substring search)
     """
     db = await get_db()
-    entries = await db.get_recent_sync_log(limit=limit, since_minutes=since_minutes)
+    entries = await db.get_recent_sync_log(
+        limit=limit,
+        since_minutes=since_minutes,
+        source_server=source_server,
+        target_server=target_server,
+        event_type=event_type,
+        item_name=item_name,
+    )
 
     return entries
 

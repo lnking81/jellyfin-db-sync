@@ -122,6 +122,7 @@ class SyncResult(BaseModel):
     target_server: str
     event_type: SyncEventType
     message: str
+    synced_value: str | None = None  # Human-readable value that was synced
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
