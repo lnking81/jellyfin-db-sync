@@ -169,6 +169,12 @@ h1 {
   color: #fff;
 }
 
+.tag-version {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
 .events-table {
   width: 100%;
   border-collapse: collapse;

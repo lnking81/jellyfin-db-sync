@@ -20,6 +20,7 @@ class ServerStatus(BaseModel):
     url: str
     passwordless: bool
     healthy: bool
+    version: str | None = None
     user_count: int | None = None
 
 
@@ -85,14 +86,16 @@ async def get_status(request: Request) -> OverallStatus:
     engine: SyncEngine = request.app.state.engine
     db = await get_db()
 
-    # Server health
+    # Server health and info
     server_health = await engine.health_check_all()
+    server_versions = await engine.get_server_versions()
     servers = [
         ServerStatus(
             name=s.name,
             url=s.url,
             passwordless=s.passwordless,
             healthy=server_health.get(s.name, False),
+            version=server_versions.get(s.name),
         )
         for s in config.servers
     ]
@@ -164,6 +167,7 @@ async def get_servers(request: Request) -> list[ServerStatus]:
     engine: SyncEngine = request.app.state.engine
 
     server_health = await engine.health_check_all()
+    server_versions = await engine.get_server_versions()
 
     return [
         ServerStatus(
@@ -171,6 +175,7 @@ async def get_servers(request: Request) -> list[ServerStatus]:
             url=s.url,
             passwordless=s.passwordless,
             healthy=server_health.get(s.name, False),
+            version=server_versions.get(s.name),
         )
         for s in config.servers
     ]

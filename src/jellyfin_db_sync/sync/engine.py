@@ -984,6 +984,22 @@ class SyncEngine:
 
         return results
 
+    async def get_server_versions(self) -> dict[str, str | None]:
+        """Get Jellyfin version for all configured servers."""
+        results: dict[str, str | None] = {}
+
+        async def get_version(server: ServerConfig) -> tuple[str, str | None]:
+            client = self._get_client(server)
+            info = await client.get_server_info()
+            version = info.get("Version") if info else None
+            return server.name, version
+
+        tasks = [get_version(s) for s in self.config.servers]
+        for name, version in await asyncio.gather(*tasks):
+            results[name] = version
+
+        return results
+
     async def get_queue_status(self) -> dict[str, Any]:
         """Get current queue status."""
         db = await get_db()

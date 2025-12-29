@@ -625,3 +625,14 @@ class JellyfinClient:
         except Exception as e:
             logger.warning("[%s] Health check FAILED: %s", self.server.name, e)
             return False
+
+    async def get_server_info(self) -> dict[str, Any] | None:
+        """Get server information including version."""
+        try:
+            response = await self._request("GET", "/System/Info/Public")
+            info = response.json()
+            logger.debug("[%s] Server info: %s v%s", self.server.name, info.get("ServerName"), info.get("Version"))
+            return info
+        except Exception as e:
+            logger.warning("[%s] Failed to get server info: %s", self.server.name, e)
+            return None

@@ -270,6 +270,7 @@ class Dashboard {
                     <span class="server-url">${this.escapeHtml(s.url)}</span>
                 </div>
                 <div class="server-status">
+                    ${s.version ? `<span class="tag tag-version">${this.escapeHtml(s.version)}</span>` : ''}
                     ${s.passwordless ? '<span class="tag">NO AUTH</span>' : ''}
                     <span class="status-dot ${s.healthy ? 'online' : 'offline'}"></span>
                 </div>
