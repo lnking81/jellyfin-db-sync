@@ -20,10 +20,12 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "black>=24.0.0",
     "types-PyYAML>=6.0.0",
+    "tox>=4.0.0",
 ]
 
 [project.scripts]
@@ -74,3 +76,20 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/jellyfin_db_sync"]
+branch = true
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = false
+fail_under = 0
