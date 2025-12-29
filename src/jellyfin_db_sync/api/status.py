@@ -300,7 +300,7 @@ async def get_user_mappings(request: Request) -> dict[str, Any]:
     users: dict[str, dict[str, str | None]] = {}
     for m in mappings:
         if m.username not in users:
-            users[m.username] = {s: None for s in server_names}
+            users[m.username] = dict.fromkeys(server_names, None)
         users[m.username][m.server_name] = m.jellyfin_user_id
 
     return {
