@@ -1,6 +1,8 @@
 """Jellyfin API client for sync operations."""
 
 import logging
+import uuid
+from importlib.metadata import metadata
 from typing import Any
 
 import httpx
@@ -13,6 +15,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 DEFAULT_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
 
+# Get package metadata for client identification
+_PKG_NAME = "jellyfin-db-sync"
+_pkg_meta = metadata(_PKG_NAME)
+CLIENT_NAME = _pkg_meta["Name"]
+CLIENT_VERSION = _pkg_meta["Version"]
+# Generate a stable device ID based on machine (or use random for each instance)
+DEVICE_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{_PKG_NAME}.local"))
+
 
 class JellyfinClient:
     """Async client for Jellyfin API."""
@@ -20,8 +30,17 @@ class JellyfinClient:
     def __init__(self, server: ServerConfig):
         self.server = server
         self.base_url = server.url.rstrip("/")
+        # Use proper Jellyfin authorization header format
+        # This prevents phantom playback sessions from appearing on dashboard
+        auth_header = (
+            f'MediaBrowser Client="{CLIENT_NAME}", '
+            f'Device="{CLIENT_NAME}", '
+            f'DeviceId="{DEVICE_ID}", '
+            f'Version="{CLIENT_VERSION}", '
+            f'Token="{server.api_key}"'
+        )
         self.headers = {
-            "X-Emby-Token": server.api_key,
+            "Authorization": auth_header,
             "Content-Type": "application/json",
         }
         self._client: httpx.AsyncClient | None = None
