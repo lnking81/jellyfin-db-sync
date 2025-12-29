@@ -1,5 +1,6 @@
 """Jellyfin API client for sync operations."""
 
+import asyncio
 import logging
 import uuid
 from importlib.metadata import metadata
@@ -14,6 +15,17 @@ logger = logging.getLogger(__name__)
 # Connection pool limits
 DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 DEFAULT_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+
+# Lock for cache refresh per server (prevents parallel refreshes)
+_cache_refresh_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_cache_lock(server_name: str) -> asyncio.Lock:
+    """Get or create a lock for cache refresh on a specific server."""
+    if server_name not in _cache_refresh_locks:
+        _cache_refresh_locks[server_name] = asyncio.Lock()
+    return _cache_refresh_locks[server_name]
+
 
 # Get package metadata for client identification
 _PKG_NAME = "jellyfin-db-sync"
@@ -44,6 +56,7 @@ class JellyfinClient:
             "Content-Type": "application/json",
         }
         self._client: httpx.AsyncClient | None = None
+        self._admin_user_id: str | None = None  # Cached admin user ID for item lookups
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the shared HTTP client."""
@@ -82,21 +95,54 @@ class JellyfinClient:
 
     async def get_users(self) -> list[dict[str, Any]]:
         """Get all users from the server."""
+        logger.debug("[%s] Getting users list", self.server.name)
         response = await self._request("GET", "/Users")
-        return response.json()
+        users = response.json()
+        logger.debug("[%s] Found %d users", self.server.name, len(users))
+        return users
 
     async def get_user_by_name(self, username: str) -> dict[str, Any] | None:
         """Find a user by username."""
         users = await self.get_users()
         for user in users:
             if user.get("Name", "").lower() == username.lower():
+                logger.debug("[%s] Found user '%s' -> %s", self.server.name, username, user.get("Id"))
                 return user
+        logger.debug("[%s] User '%s' not found", self.server.name, username)
         return None
 
     async def get_user_id(self, username: str) -> str | None:
         """Get user ID by username."""
         user = await self.get_user_by_name(username)
-        return user.get("Id") if user else None
+        user_id = user.get("Id") if user else None
+        if user_id:
+            logger.debug("[%s] Resolved user '%s' -> %s", self.server.name, username, user_id)
+        return user_id
+
+    async def get_admin_user_id(self) -> str | None:
+        """Get admin user ID for item lookups (cached).
+
+        Jellyfin /Items/{id} endpoint requires a user context.
+        We use an admin user who has access to all libraries.
+        """
+        if self._admin_user_id:
+            return self._admin_user_id
+
+        users = await self.get_users()
+        for user in users:
+            policy = user.get("Policy", {})
+            if policy.get("IsAdministrator"):
+                self._admin_user_id = user.get("Id")
+                logger.info(
+                    "[%s] Using admin user '%s' (%s) for item lookups",
+                    self.server.name,
+                    user.get("Name"),
+                    self._admin_user_id,
+                )
+                return self._admin_user_id
+
+        logger.error("[%s] No admin user found! Item lookups will fail.", self.server.name)
+        return None
 
     async def create_user(self, username: str, password: str | None = None) -> dict[str, Any] | None:
         """
@@ -109,6 +155,7 @@ class JellyfinClient:
         Returns:
             User data dict if successful, None otherwise
         """
+        logger.info("[%s] Creating user '%s'", self.server.name, username)
         try:
             response = await self._request(
                 "POST",
@@ -119,13 +166,13 @@ class JellyfinClient:
                 },
             )
             user = response.json()
-            logger.info("Created user '%s' on %s", username, self.server.name)
+            logger.info("[%s] Created user '%s' -> %s", self.server.name, username, user.get("Id"))
             return user
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 400:
-                logger.warning("User '%s' may already exist on %s", username, self.server.name)
+                logger.warning("[%s] User '%s' already exists", self.server.name, username)
             else:
-                logger.error("Failed to create user '%s' on %s: %s", username, self.server.name, e)
+                logger.error("[%s] Failed to create user '%s': %s", self.server.name, username, e)
             return None
 
     async def delete_user(self, user_id: str) -> bool:
@@ -138,15 +185,16 @@ class JellyfinClient:
         Returns:
             True if deleted successfully
         """
+        logger.info("[%s] Deleting user %s", self.server.name, user_id)
         try:
             await self._request(
                 "DELETE",
                 f"/Users/{user_id}",
             )
-            logger.info("Deleted user %s from %s", user_id, self.server.name)
+            logger.info("[%s] Deleted user %s", self.server.name, user_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to delete user %s from %s: %s", user_id, self.server.name, e)
+            logger.error("[%s] Failed to delete user %s: %s", self.server.name, user_id, e)
             return False
 
     # ========== Item Lookup ==========
@@ -174,36 +222,81 @@ class JellyfinClient:
 
             db = await get_db()
 
+        # Get admin user for item lookups
+        admin_id = await self.get_admin_user_id()
+        if not admin_id:
+            logger.error("[%s] Cannot lookup item - no admin user", self.server.name)
+            return None
+
         # Check cache first
         cached_id = await db.get_cached_item_id(self.server.name, path)
         if cached_id:
-            logger.debug("Cache hit for path %s -> %s", path, cached_id)
-            # Verify item still exists and get full info
+            logger.debug("[%s] Cache HIT: %s -> %s", self.server.name, path, cached_id)
+            # Return item info from cache - trust the cache to avoid race conditions
+            # If item was deleted/moved, the sync operation will fail with 404 and we handle there
             try:
                 response = await self._request(
                     "GET",
-                    f"/Items/{cached_id}",
+                    f"/Users/{admin_id}/Items/{cached_id}",
                     params={"fields": "Path,ProviderIds"},
                 )
-                item = response.json()
-                # Verify path still matches (item could have been moved)
-                if item.get("Path") == path:
-                    return item
-                else:
-                    # Path changed, invalidate cache entry
-                    await db.invalidate_item_cache(self.server.name, path)
-            except httpx.HTTPStatusError:
-                # Item no longer exists, invalidate cache entry
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                # Item no longer exists (404), invalidate cache entry
+                logger.warning("[%s] Cached item %s no longer exists: %s", self.server.name, cached_id, e)
                 await db.invalidate_item_cache(self.server.name, path)
 
         # Cache miss - refresh cache from server (new items may have been added)
-        logger.debug("Cache miss for %s, refreshing from server...", path)
+        logger.info("[%s] Cache MISS for path, will refresh: %s", self.server.name, path)
 
         return await self._refresh_cache_and_find(path, db)
 
     async def _refresh_cache_and_find(self, path: str, db: Any) -> dict[str, Any] | None:
-        """Refresh item cache from server and find item by path."""
+        """Refresh item cache from server and find item by path.
+
+        Uses a lock to prevent parallel refreshes for the same server.
+        If another refresh is in progress, waits for it and checks cache again.
+        """
+        lock = _get_cache_lock(self.server.name)
+
+        # Check if another refresh is already in progress
+        if lock.locked():
+            logger.debug("[%s] Cache refresh in progress, waiting...", self.server.name)
+            async with lock:
+                pass  # Just wait for the other refresh to complete
+
+            # After waiting, check cache again - the other refresh may have populated it
+            cached_id = await db.get_cached_item_id(self.server.name, path)
+            if cached_id:
+                logger.debug("[%s] Cache HIT after parallel refresh: %s", self.server.name, path)
+                admin_id = await self.get_admin_user_id()
+                if admin_id:
+                    try:
+                        response = await self._request(
+                            "GET",
+                            f"/Users/{admin_id}/Items/{cached_id}",
+                            params={"fields": "Path,ProviderIds"},
+                        )
+                        return response.json()
+                    except httpx.HTTPStatusError:
+                        pass
+            # Still not found after waiting - item doesn't exist on server
+            logger.debug("[%s] Item not in cache after parallel refresh: %s", self.server.name, path)
+            return None
+
+        # We're the first one - do the actual refresh
+        async with lock:
+            return await self._do_refresh_cache(path, db)
+
+    async def _do_refresh_cache(self, path: str, db: Any) -> dict[str, Any] | None:
+        """Actually refresh the cache from server."""
         try:
+            # Get admin user to access all libraries
+            admin_id = await self.get_admin_user_id()
+            if not admin_id:
+                logger.error("[%s] Cannot refresh cache - no admin user", self.server.name)
+                return None
+
             # Jellyfin API has NO path search parameter
             # We must get all items and filter locally
             # Use includeItemTypes to limit to actual media files
@@ -214,7 +307,7 @@ class JellyfinClient:
             while True:
                 response = await self._request(
                     "GET",
-                    "/Items",
+                    f"/Users/{admin_id}/Items",
                     params={
                         "recursive": "true",
                         "fields": "Path,ProviderIds",
@@ -234,27 +327,37 @@ class JellyfinClient:
                     break
                 start_index += page_size
 
-            logger.info("Fetched %d items from %s, updating cache...", len(all_items), self.server.name)
+            logger.info("[%s] Fetched %d items from API", self.server.name, len(all_items))
 
-            # Cache ALL items with paths for future lookups
+            # Cache ALL items with paths in a single batch (one transaction)
             found_item: dict[str, Any] | None = None
+            cache_batch: list[tuple[str, str, str | None]] = []
             for item in all_items:
                 item_path = item.get("Path", "")
                 if item_path:
                     item_id = item.get("Id", "")
                     item_name = item.get("Name", "")
-                    await db.cache_item_path(self.server.name, item_path, item_id, item_name)
+                    cache_batch.append((item_path, item_id, item_name))
                     if item_path == path:
                         found_item = item
 
+            # Single batch insert - one commit for all items
+            if cache_batch:
+                await db.cache_items_batch(self.server.name, cache_batch)
+
             if found_item:
-                logger.debug("Found item by path: %s -> %s", path, found_item.get("Id"))
+                logger.info(
+                    "[%s] Cache refreshed, item found: %s -> %s",
+                    self.server.name,
+                    found_item.get("Name"),
+                    found_item.get("Id"),
+                )
                 return found_item
 
-            logger.debug("Item not found with path: %s", path)
+            logger.warning("[%s] Cache refreshed but item not found: %s", self.server.name, path)
 
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to fetch items from %s: %s", self.server.name, e)
+            logger.error("[%s] Cache refresh failed: %s", self.server.name, e)
 
         return None
 
@@ -265,8 +368,22 @@ class JellyfinClient:
         tvdb_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Find an item by external provider ID."""
+        logger.debug(
+            "[%s] Finding item by provider ID: imdb=%s, tmdb=%s, tvdb=%s",
+            self.server.name,
+            imdb_id,
+            tmdb_id,
+            tvdb_id,
+        )
+
+        # Get admin user for full library access
+        admin_id = await self.get_admin_user_id()
+        if not admin_id:
+            logger.error("[%s] Cannot find item by provider - no admin user", self.server.name)
+            return None
+
         # Build search params with available provider IDs
-        # Note: searching without userId gives better results
+        # Use admin user to access all libraries
         # Exclude BoxSet/collections which share provider IDs with actual media
         params: dict[str, Any] = {
             "recursive": "true",
@@ -284,14 +401,23 @@ class JellyfinClient:
             if value:
                 params["AnyProviderIdEquals"] = f"{provider}.{value}"
                 try:
-                    response = await self._request("GET", "/Items", params=params)
+                    response = await self._request("GET", f"/Users/{admin_id}/Items", params=params)
                     data = response.json()
                     items = data.get("Items", [])
                     if items:
+                        logger.debug(
+                            "[%s] Found item by %s=%s: %s",
+                            self.server.name,
+                            provider,
+                            value,
+                            items[0].get("Id"),
+                        )
                         return items[0]
-                except httpx.HTTPStatusError:
+                except httpx.HTTPStatusError as e:
+                    logger.debug("[%s] Provider search failed for %s=%s: %s", self.server.name, provider, value, e)
                     continue
 
+        logger.debug("[%s] Item not found by any provider ID", self.server.name)
         return None
 
     # ========== Playback Progress ==========
@@ -316,10 +442,10 @@ class JellyfinClient:
                 f"/Users/{user_id}/Items/{item_id}/UserData",
                 json={"PlaybackPositionTicks": position_ticks},
             )
-            logger.debug("Updated progress on %s: item=%s, position=%s", self.server.name, item_id, position_ticks)
+            logger.debug("[%s] Updated progress: item=%s, ticks=%d", self.server.name, item_id, position_ticks)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to update progress: %s", e)
+            logger.error("[%s] Failed to update progress for item=%s: %s", self.server.name, item_id, e)
             return False
 
     # ========== Watched Status ==========
@@ -331,10 +457,10 @@ class JellyfinClient:
                 "POST",
                 f"/Users/{user_id}/PlayedItems/{item_id}",
             )
-            logger.debug("Marked as played on %s: item=%s", self.server.name, item_id)
+            logger.debug("[%s] Marked played: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to mark as played: %s", e)
+            logger.error("[%s] Failed to mark played: item=%s, error=%s", self.server.name, item_id, e)
             return False
 
     async def mark_unplayed(self, user_id: str, item_id: str) -> bool:
@@ -344,10 +470,10 @@ class JellyfinClient:
                 "DELETE",
                 f"/Users/{user_id}/PlayedItems/{item_id}",
             )
-            logger.debug("Marked as unplayed on %s: item=%s", self.server.name, item_id)
+            logger.debug("[%s] Marked unplayed: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to mark as unplayed: %s", e)
+            logger.error("[%s] Failed to mark unplayed: item=%s, error=%s", self.server.name, item_id, e)
             return False
 
     # ========== Favorites ==========
@@ -359,10 +485,10 @@ class JellyfinClient:
                 "POST",
                 f"/Users/{user_id}/FavoriteItems/{item_id}",
             )
-            logger.debug("Added to favorites on %s: item=%s", self.server.name, item_id)
+            logger.debug("[%s] Added favorite: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to add favorite: %s", e)
+            logger.error("[%s] Failed to add favorite: item=%s, error=%s", self.server.name, item_id, e)
             return False
 
     async def remove_favorite(self, user_id: str, item_id: str) -> bool:
@@ -372,10 +498,10 @@ class JellyfinClient:
                 "DELETE",
                 f"/Users/{user_id}/FavoriteItems/{item_id}",
             )
-            logger.debug("Removed from favorites on %s: item=%s", self.server.name, item_id)
+            logger.debug("[%s] Removed favorite: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to remove favorite: %s", e)
+            logger.error("[%s] Failed to remove favorite: item=%s, error=%s", self.server.name, item_id, e)
             return False
 
     # ========== Ratings ==========
@@ -393,10 +519,10 @@ class JellyfinClient:
                 f"/Users/{user_id}/Items/{item_id}/Rating",
                 params={"likes": rating >= 5},  # Jellyfin uses likes/dislikes
             )
-            logger.debug("Updated rating on %s: item=%s, rating=%s", self.server.name, item_id, rating)
+            logger.debug("[%s] Updated rating: item=%s, rating=%.1f", self.server.name, item_id, rating)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to update rating: %s", e)
+            logger.error("[%s] Failed to update rating: item=%s, error=%s", self.server.name, item_id, e)
             return False
 
     async def delete_rating(self, user_id: str, item_id: str) -> bool:
@@ -406,10 +532,10 @@ class JellyfinClient:
                 "DELETE",
                 f"/Users/{user_id}/Items/{item_id}/Rating",
             )
-            logger.debug("Deleted rating on %s: item=%s", self.server.name, item_id)
+            logger.debug("[%s] Deleted rating: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to delete rating: %s", e)
+            logger.error("[%s] Failed to delete rating: item=%s, error=%s", self.server.name, item_id, e)
             return False
 
     # ========== User Data Updates ==========
@@ -443,6 +569,7 @@ class JellyfinClient:
                 update_data["SubtitleStreamIndex"] = subtitle_stream_index
 
             if not update_data:
+                logger.debug("[%s] No user data to update for item=%s", self.server.name, item_id)
                 return True  # Nothing to update
 
             await self._request(
@@ -450,10 +577,10 @@ class JellyfinClient:
                 f"/Users/{user_id}/Items/{item_id}/UserData",
                 json=update_data,
             )
-            logger.debug("Updated user data on %s: item=%s, data=%s", self.server.name, item_id, update_data)
+            logger.debug("[%s] Updated user data: item=%s, data=%s", self.server.name, item_id, update_data)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to update user data: %s", e)
+            logger.error("[%s] Failed to update user data: item=%s, error=%s", self.server.name, item_id, e)
             return False
 
     # ========== User Data (combined) ==========
@@ -465,9 +592,11 @@ class JellyfinClient:
                 "GET",
                 f"/Users/{user_id}/Items/{item_id}",
             )
-            return response.json()
+            item = response.json()
+            logger.debug("[%s] Got item info: %s (%s)", self.server.name, item.get("Name"), item_id)
+            return item
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to get item info: %s", e)
+            logger.error("[%s] Failed to get item info: item=%s, error=%s", self.server.name, item_id, e)
             return None
 
     async def get_user_data(self, user_id: str, item_id: str) -> dict[str, Any] | None:
@@ -478,9 +607,11 @@ class JellyfinClient:
                 f"/Users/{user_id}/Items/{item_id}",
             )
             data = response.json()
-            return data.get("UserData")
+            user_data = data.get("UserData")
+            logger.debug("[%s] Got user data for item=%s", self.server.name, item_id)
+            return user_data
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to get user data: %s", e)
+            logger.error("[%s] Failed to get user data: item=%s, error=%s", self.server.name, item_id, e)
             return None
 
     # ========== Health Check ==========
@@ -489,7 +620,8 @@ class JellyfinClient:
         """Check if the server is reachable."""
         try:
             await self._request("GET", "/System/Info/Public")
+            logger.debug("[%s] Health check OK", self.server.name)
             return True
         except Exception as e:
-            logger.warning("Health check failed for %s: %s", self.server.name, e)
+            logger.warning("[%s] Health check FAILED: %s", self.server.name, e)
             return False

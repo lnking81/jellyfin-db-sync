@@ -43,6 +43,8 @@ async def sync_user_creation(source_server: str, username: str, user_id: str) ->
     db = await get_db()
     results: dict[str, Any] = {"created": [], "skipped": [], "failed": []}
 
+    logger.info("[%s] Syncing user creation: %s", source_server, username)
+
     # Save mapping for source server
     await db.upsert_user_mapping(
         username=username.lower(),
@@ -60,7 +62,7 @@ async def sync_user_creation(source_server: str, username: str, user_id: str) ->
         # Check if user already exists
         existing = await client.get_user_by_name(username)
         if existing:
-            logger.debug("User '%s' already exists on %s", username, server.name)
+            logger.debug("[%s] User '%s' already exists, updating mapping", server.name, username)
             # Update mapping anyway
             await db.upsert_user_mapping(
                 username=username.lower(),
@@ -76,6 +78,12 @@ async def sync_user_creation(source_server: str, username: str, user_id: str) ->
         # Create user
         new_user = await client.create_user(username, password)
         if new_user:
+            logger.info(
+                "[%s] Created user '%s' (passwordless=%s)",
+                server.name,
+                username,
+                server.passwordless,
+            )
             await db.upsert_user_mapping(
                 username=username.lower(),
                 server_name=server.name,
@@ -89,8 +97,16 @@ async def sync_user_creation(source_server: str, username: str, user_id: str) ->
                 }
             )
         else:
+            logger.error("[%s] Failed to create user '%s'", server.name, username)
             results["failed"].append(server.name)
 
+    logger.info(
+        "User sync complete: %s - created=%d, skipped=%d, failed=%d",
+        username,
+        len(results["created"]),
+        len(results["skipped"]),
+        len(results["failed"]),
+    )
     return results
 
 
@@ -99,6 +115,8 @@ async def sync_user_deletion(source_server: str, username: str) -> dict[str, Any
     config = get_config()
     db = await get_db()
     results: dict[str, Any] = {"deleted": [], "not_found": [], "failed": []}
+
+    logger.info("[%s] Syncing user deletion: %s", source_server, username)
 
     # Delete mapping for source server
     await db.delete_user_mapping(username=username.lower(), server_name=source_server)
@@ -114,7 +132,7 @@ async def sync_user_deletion(source_server: str, username: str) -> dict[str, Any
         # Find user
         user = await client.get_user_by_name(username)
         if not user:
-            logger.debug("User '%s' not found on %s", username, server.name)
+            logger.debug("[%s] User '%s' not found, removing mapping", server.name, username)
             results["not_found"].append(server.name)
             # Still remove mapping if exists
             await db.delete_user_mapping(username=username.lower(), server_name=server.name)
@@ -123,11 +141,20 @@ async def sync_user_deletion(source_server: str, username: str) -> dict[str, Any
         # Delete user
         success = await client.delete_user(user["Id"])
         if success:
+            logger.info("[%s] Deleted user '%s'", server.name, username)
             await db.delete_user_mapping(username=username.lower(), server_name=server.name)
             results["deleted"].append(server.name)
         else:
+            logger.error("[%s] Failed to delete user '%s'", server.name, username)
             results["failed"].append(server.name)
 
+    logger.info(
+        "User deletion complete: %s - deleted=%d, not_found=%d, failed=%d",
+        username,
+        len(results["deleted"]),
+        len(results["not_found"]),
+        len(results["failed"]),
+    )
     return results
 
 
@@ -166,7 +193,7 @@ async def receive_webhook(
     # Handle user lifecycle events (sync to all servers)
     if payload.event == "UserCreated":
         if payload.username and payload.user_id:
-            logger.info("User created on %s: %s - syncing to other servers", server_name, payload.username)
+            logger.info("[%s] UserCreated webhook: %s", server_name, payload.username)
             results = await sync_user_creation(server_name, payload.username, payload.user_id)
             return {
                 "status": "user_synced",
@@ -178,7 +205,7 @@ async def receive_webhook(
 
     if payload.event == "UserDeleted":
         if payload.username:
-            logger.info("User deleted on %s: %s - deleting from all servers", server_name, payload.username)
+            logger.info("[%s] UserDeleted webhook: %s", server_name, payload.username)
             results = await sync_user_deletion(server_name, payload.username)
             return {
                 "status": "user_deleted_all",
@@ -190,7 +217,7 @@ async def receive_webhook(
 
     # Skip if no username (can't sync without knowing the user)
     if not payload.username:
-        logger.debug("Skipping webhook without username: %s", payload.event)
+        logger.debug("[%s] Skipping %s webhook: no username", server_name, payload.event)
         return {"status": "skipped", "reason": "no username"}
 
     # If Path is missing, fetch it from Jellyfin API
@@ -208,11 +235,26 @@ async def receive_webhook(
                 payload.provider_tmdb = provider_ids.get("Tmdb")
             if not payload.provider_tvdb:
                 payload.provider_tvdb = provider_ids.get("Tvdb")
-            logger.debug("[API ENRICHED] path=%s, imdb=%s", payload.item_path, payload.provider_imdb)
+            logger.debug(
+                "[%s] Enriched from API: path=%s, imdb=%s",
+                server_name,
+                payload.item_path[-50:] if payload.item_path else None,
+                payload.provider_imdb,
+            )
 
     # Enqueue events for async processing (WAL pattern)
     engine = get_engine(request)
     enqueued_count = await engine.enqueue_events(payload, server_name)
+
+    if enqueued_count > 0:
+        logger.info(
+            "[%s] Enqueued %d events: %s %s for %s",
+            server_name,
+            enqueued_count,
+            payload.event,
+            payload.item_name,
+            payload.username,
+        )
 
     return {
         "status": "enqueued",

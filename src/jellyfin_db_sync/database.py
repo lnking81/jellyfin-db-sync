@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -9,6 +10,8 @@ import aiosqlite
 
 from .config import get_config
 from .models import PendingEvent, PendingEventStatus, SyncEventType, UserMapping
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -42,6 +45,7 @@ class Database:
         db_path = Path(self.db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        logger.info("Connecting to database: %s (journal_mode=%s)", db_path, self.journal_mode)
         self._db = await aiosqlite.connect(self.db_path)
         self._db.row_factory = aiosqlite.Row
 
@@ -50,10 +54,12 @@ class Database:
             await self._db.execute(f"PRAGMA journal_mode={self.journal_mode}")
 
         await self._create_tables()
+        logger.info("Database connected successfully")
 
     async def close(self) -> None:
         """Close the database connection."""
         if self._db:
+            logger.info("Closing database connection")
             await self._db.close()
             self._db = None
 
@@ -182,6 +188,7 @@ class Database:
         ) as cursor:
             row = await cursor.fetchone()
             if row:
+                logger.debug("[%s] Found user mapping: %s -> %s", server_name, username, row["jellyfin_user_id"])
                 return UserMapping(
                     id=row["id"],
                     username=row["username"],
@@ -190,12 +197,14 @@ class Database:
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                 )
+            logger.debug("[%s] User mapping not found: %s", server_name, username)
             return None
 
     async def get_user_mappings_by_username(self, username: str) -> list[UserMapping]:
         """Get all mappings for a username across all servers."""
         assert self._db is not None
 
+        logger.debug("Looking up all mappings for user: %s", username)
         mappings = []
         async with self._db.execute(
             """
@@ -216,12 +225,14 @@ class Database:
                         updated_at=row["updated_at"],
                     )
                 )
+        logger.debug("Found %d mappings for user %s", len(mappings), username)
         return mappings
 
     async def upsert_user_mapping(self, username: str, server_name: str, jellyfin_user_id: str) -> UserMapping:
         """Insert or update a user mapping."""
         assert self._db is not None
 
+        logger.debug("[%s] Upserting user mapping: %s -> %s", server_name, username, jellyfin_user_id)
         await self._db.execute(
             """
             INSERT INTO user_mappings (username, server_name, jellyfin_user_id, updated_at)
@@ -236,18 +247,23 @@ class Database:
 
         mapping = await self.get_user_mapping(username, server_name)
         assert mapping is not None
+        logger.info("[%s] User mapping saved: %s -> %s", server_name, username, jellyfin_user_id)
         return mapping
 
     async def delete_user_mapping(self, username: str, server_name: str) -> bool:
         """Delete a user mapping. Returns True if deleted."""
         assert self._db is not None
 
+        logger.debug("[%s] Deleting user mapping: %s", server_name, username)
         cursor = await self._db.execute(
             "DELETE FROM user_mappings WHERE username = ? AND server_name = ?",
             (username, server_name),
         )
         await self._db.commit()
-        return cursor.rowcount > 0
+        deleted = cursor.rowcount > 0
+        if deleted:
+            logger.info("[%s] Deleted user mapping: %s", server_name, username)
+        return deleted
 
     async def log_sync(
         self,
@@ -263,6 +279,26 @@ class Database:
     ) -> None:
         """Log a sync operation."""
         assert self._db is not None
+
+        if success:
+            logger.info(
+                "[%s->%s] Sync OK: %s %s for %s",
+                source_server,
+                target_server,
+                event_type,
+                item_name or item_id,
+                username,
+            )
+        else:
+            logger.warning(
+                "[%s->%s] Sync FAILED: %s %s for %s - %s",
+                source_server,
+                target_server,
+                event_type,
+                item_name or item_id,
+                username,
+                message,
+            )
 
         await self._db.execute(
             """
@@ -286,6 +322,7 @@ class Database:
         """Check if a similar pending event already exists (deduplication)."""
         assert self._db is not None
 
+        logger.debug("[%s] Checking for duplicate event: %s item=%s", target_server, event_type.value, item_id[:8])
         async with self._db.execute(
             """
             SELECT 1 FROM pending_events
@@ -299,7 +336,10 @@ class Database:
             (event_type.value, target_server, username, item_id),
         ) as cursor:
             row = await cursor.fetchone()
-            return row is not None
+            exists = row is not None
+            if exists:
+                logger.debug("[%s] Duplicate event found, skipping", target_server)
+            return exists
 
     async def add_pending_event(
         self,
@@ -318,6 +358,15 @@ class Database:
     ) -> int:
         """Add a new pending event to the queue."""
         assert self._db is not None
+
+        logger.info(
+            "[%s->%s] Queued event: %s %s for %s",
+            source_server,
+            target_server,
+            event_type.value,
+            item_name,
+            username,
+        )
 
         cursor = await self._db.execute(
             """
@@ -342,12 +391,15 @@ class Database:
             ),
         )
         await self._db.commit()
-        return cursor.lastrowid or 0
+        event_id = cursor.lastrowid or 0
+        logger.debug("[%s->%s] Event queued with id=%d", source_server, target_server, event_id)
+        return event_id
 
     async def get_pending_events(self, limit: int = 100) -> list[PendingEvent]:
         """Get pending events ready for processing."""
         assert self._db is not None
 
+        logger.debug("Fetching pending events (limit=%d)", limit)
         now = datetime.now(UTC).isoformat()
         events = []
 
@@ -364,12 +416,15 @@ class Database:
             async for row in cursor:
                 events.append(self._row_to_pending_event(row))
 
+        if events:
+            logger.debug("Fetched %d pending events for processing", len(events))
         return events
 
     async def mark_event_processing(self, event_id: int) -> None:
         """Mark an event as being processed."""
         assert self._db is not None
 
+        logger.debug("Event %d: status -> processing", event_id)
         await self._db.execute(
             """
             UPDATE pending_events
@@ -389,6 +444,12 @@ class Database:
         async with self._db.execute(query, (event_id,)) as cursor:
             row = await cursor.fetchone()
             if row:
+                logger.debug(
+                    "Event %d: completed (%s %s)",
+                    event_id,
+                    row["event_type"],
+                    row["item_name"],
+                )
                 # Log successful sync
                 await self.log_sync(
                     event_type=row["event_type"],
@@ -419,6 +480,7 @@ class Database:
         async with self._db.execute(query, (event_id,)) as cursor:
             row = await cursor.fetchone()
             if not row:
+                logger.warning("Event %d: not found for marking as failed", event_id)
                 return
 
             retry_count = row["retry_count"] + 1
@@ -426,6 +488,14 @@ class Database:
 
             if retry_count >= max_retries:
                 # Move to log as failed and delete
+                logger.error(
+                    "Event %d: FAILED after %d retries (%s %s) - %s",
+                    event_id,
+                    retry_count,
+                    row["event_type"],
+                    row["item_name"],
+                    error,
+                )
                 await self.log_sync(
                     event_type=row["event_type"],
                     source_server=row["source_server"],
@@ -441,6 +511,16 @@ class Database:
                 # Schedule retry with exponential backoff
                 backoff_seconds = min(300, 10 * (2**retry_count))  # Max 5 minutes
                 next_retry = datetime.now(UTC) + timedelta(seconds=backoff_seconds)
+
+                logger.warning(
+                    "Event %d: retry %d/%d in %ds (%s) - %s",
+                    event_id,
+                    retry_count,
+                    max_retries,
+                    backoff_seconds,
+                    row["item_name"],
+                    error,
+                )
 
                 await self._db.execute(
                     """
@@ -471,6 +551,7 @@ class Database:
         """Reset events stuck in processing state for too long."""
         assert self._db is not None
 
+        logger.debug("Checking for stale events (>%d minutes)", stale_minutes)
         stale_time = (datetime.now(UTC) - timedelta(minutes=stale_minutes)).strftime("%Y-%m-%d %H:%M:%S")
 
         cursor = await self._db.execute(
@@ -482,6 +563,8 @@ class Database:
             (stale_time,),
         )
         await self._db.commit()
+        if cursor.rowcount > 0:
+            logger.info("Reset %d stale events to pending", cursor.rowcount)
         return cursor.rowcount
 
     async def reset_all_processing(self) -> int:
@@ -491,6 +574,7 @@ class Database:
         """
         assert self._db is not None
 
+        logger.debug("Resetting all processing events (startup recovery)")
         cursor = await self._db.execute(
             """
             UPDATE pending_events
@@ -499,6 +583,8 @@ class Database:
             """
         )
         await self._db.commit()
+        if cursor.rowcount > 0:
+            logger.info("Startup recovery: reset %d events from processing to pending", cursor.rowcount)
         return cursor.rowcount
 
     def _row_to_pending_event(self, row: aiosqlite.Row) -> PendingEvent:
@@ -547,6 +633,12 @@ class Database:
 
         next_retry = datetime.now(UTC) + timedelta(seconds=retry_delay_seconds)
 
+        logger.warning(
+            "Event %d: waiting for item import, retry in %ds",
+            event_id,
+            retry_delay_seconds,
+        )
+
         await self._db.execute(
             """
             UPDATE pending_events
@@ -566,6 +658,7 @@ class Database:
         """Get events waiting for items to be imported."""
         assert self._db is not None
 
+        logger.debug("Fetching events waiting for item import (limit=%d)", limit)
         now = datetime.now(UTC).isoformat()
         events: list[PendingEvent] = []
 
@@ -582,6 +675,8 @@ class Database:
             async for row in cursor:
                 events.append(self._row_to_pending_event(row))
 
+        if events:
+            logger.debug("Found %d events ready for item retry", len(events))
         return events
 
     async def get_waiting_for_item_count(self) -> int:
@@ -689,6 +784,7 @@ class Database:
         """Get failed events that exceeded max retries."""
         assert self._db is not None
 
+        logger.debug("Fetching failed events (limit=%d)", limit)
         events: list[PendingEvent] = []
         async with self._db.execute(
             """
@@ -702,12 +798,14 @@ class Database:
             async for row in cursor:
                 events.append(self._row_to_pending_event(row))
 
+        logger.debug("Found %d failed events", len(events))
         return events
 
     async def reset_event_for_retry(self, event_id: int) -> bool:
         """Reset a failed event to pending for retry."""
         assert self._db is not None
 
+        logger.debug("Resetting failed event %d for retry", event_id)
         cursor = await self._db.execute(
             """
             UPDATE pending_events
@@ -720,6 +818,8 @@ class Database:
             (event_id,),
         )
         await self._db.commit()
+        if cursor.rowcount > 0:
+            logger.info("Event %d reset for retry", event_id)
         return cursor.rowcount > 0
 
     async def get_recent_sync_log(
@@ -821,7 +921,10 @@ class Database:
             (server_name, item_path),
         ) as cursor:
             row = await cursor.fetchone()
-            return row["item_id"] if row else None
+            if row:
+                logger.debug("[%s] Cache hit: %s", server_name, item_path[-50:])
+                return row["item_id"]
+            return None
 
     async def cache_item_path(
         self,
@@ -829,8 +932,18 @@ class Database:
         item_path: str,
         item_id: str,
         item_name: str | None = None,
+        *,
+        commit: bool = True,
     ) -> None:
-        """Cache a path to item ID mapping."""
+        """Cache a path to item ID mapping.
+
+        Args:
+            server_name: Server name
+            item_path: File path on server
+            item_id: Jellyfin item ID
+            item_name: Optional item name for debugging
+            commit: Whether to commit after insert (default True, set False for batch ops)
+        """
         assert self._db is not None
 
         await self._db.execute(
@@ -844,7 +957,42 @@ class Database:
             """,
             (server_name, item_path, item_id, item_name),
         )
+        if commit:
+            await self._db.commit()
+
+    async def cache_items_batch(
+        self,
+        server_name: str,
+        items: list[tuple[str, str, str | None]],
+    ) -> int:
+        """Cache multiple items in a single transaction.
+
+        Args:
+            server_name: Server name
+            items: List of (item_path, item_id, item_name) tuples
+
+        Returns:
+            Number of items cached
+        """
+        assert self._db is not None
+
+        if not items:
+            return 0
+
+        await self._db.executemany(
+            """
+            INSERT INTO item_path_cache (server_name, item_path, item_id, item_name, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(server_name, item_path)
+            DO UPDATE SET item_id = excluded.item_id,
+                          item_name = excluded.item_name,
+                          updated_at = CURRENT_TIMESTAMP
+            """,
+            [(server_name, path, item_id, name) for path, item_id, name in items],
+        )
         await self._db.commit()
+        logger.info("[%s] Cached %d items", server_name, len(items))
+        return len(items)
 
     async def invalidate_item_cache(self, server_name: str, item_path: str | None = None) -> int:
         """Invalidate cached items. If item_path is None, invalidate all for server."""
@@ -855,11 +1003,13 @@ class Database:
                 "DELETE FROM item_path_cache WHERE server_name = ? AND item_path = ?",
                 (server_name, item_path),
             )
+            logger.debug("[%s] Invalidated cache entry: %s", server_name, item_path[-50:])
         else:
             cursor = await self._db.execute(
                 "DELETE FROM item_path_cache WHERE server_name = ?",
                 (server_name,),
             )
+            logger.info("[%s] Full cache invalidation: %d items removed", server_name, cursor.rowcount)
         await self._db.commit()
         return cursor.rowcount
 
@@ -877,6 +1027,28 @@ class Database:
         async with self._db.execute(query, params) as cursor:
             row = await cursor.fetchone()
             return row["count"] if row else 0
+
+    async def get_item_cache_stats(self) -> dict[str, int]:
+        """Get item cache count per server.
+
+        Returns:
+            Dict mapping server_name to cached item count
+        """
+        assert self._db is not None
+
+        stats: dict[str, int] = {}
+        async with self._db.execute(
+            """
+            SELECT server_name, COUNT(*) as count
+            FROM item_path_cache
+            GROUP BY server_name
+            ORDER BY server_name
+            """
+        ) as cursor:
+            async for row in cursor:
+                stats[row["server_name"]] = row["count"]
+
+        return stats
 
 
 # Global database instance

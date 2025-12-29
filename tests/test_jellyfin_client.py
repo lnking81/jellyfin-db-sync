@@ -144,6 +144,7 @@ class TestItemLookup:
         db = AsyncMock()
         db.get_cached_item_id = AsyncMock(return_value=None)
         db.cache_item_path = AsyncMock()
+        db.cache_items_batch = AsyncMock(return_value=1)
         db.invalidate_item_cache = AsyncMock()
         return db
 
@@ -164,8 +165,8 @@ class TestItemLookup:
 
         assert item is not None
         assert item["Id"] == "item-123"
-        # Should have cached the item
-        mock_db.cache_item_path.assert_called()
+        # Should have batch cached the items
+        mock_db.cache_items_batch.assert_called()
 
     @pytest.mark.asyncio
     async def test_find_item_by_path_cache_hit(self, client, mock_db):
