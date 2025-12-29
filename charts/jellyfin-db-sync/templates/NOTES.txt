@@ -1,0 +1,64 @@
+╭───────────────────────────────────────────────────────────────────────────────╮
+│                                                                               │
+│   🎬 jellyfin-db-sync has been deployed!                                      │
+│                                                                               │
+╰───────────────────────────────────────────────────────────────────────────────╯
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "jellyfin-db-sync.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "Dashboard: http://$NODE_IP:$NODE_PORT"
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  You can watch the status with:
+    kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "jellyfin-db-sync.fullname" . }}
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "jellyfin-db-sync.fullname" . }} --template "{{"{{range (index .status.loadBalancer.ingress 0)}}{{.}}{{end}}"}}")
+  echo "Dashboard: http://$SERVICE_IP:{{ .Values.service.port }}"
+{{- else if contains "ClusterIP" .Values.service.type }}
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "jellyfin-db-sync.fullname" . }} 8080:{{ .Values.service.port }}
+  echo "Dashboard: http://localhost:8080"
+{{- end }}
+
+2. Configure Jellyfin webhooks:
+   In each Jellyfin server, go to Dashboard → Plugins → Webhook and add:
+
+   Webhook URL: <your-service-url>/webhook/<server-name>
+
+   Enable these events:
+   • Playback Progress
+   • Playback Start
+   • Playback Stop
+   • User Data Saved
+   • Item Added
+
+3. View sync status:
+   Access the web dashboard at the application URL to monitor:
+   • Pending events in queue
+   • Sync history and success rates
+   • Server connectivity status
+
+4. Check logs:
+   kubectl logs -f --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "jellyfin-db-sync.name" . }}"
+
+{{- if not .Values.persistence.enabled }}
+
+⚠️  WARNING: Persistence is disabled!
+   The SQLite database will be lost when the pod restarts.
+   Consider enabling persistence for production use.
+{{- end }}
+
+{{- if .Values.config.sync.dryRun }}
+
+⚠️  DRY RUN MODE is enabled!
+   No changes will be applied to target servers.
+   Set config.sync.dryRun=false to enable actual syncing.
+{{- end }}
+
+For more information, visit: https://github.com/lnking81/jellyfin-db-sync

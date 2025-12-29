@@ -1,0 +1,260 @@
+# Default values for jellyfin-db-sync.
+# This is a YAML-formatted file.
+
+# -- Number of replicas (only 1 is recommended for SQLite)
+replicaCount: 1
+
+image:
+  # -- Container image repository
+  repository: ghcr.io/lnking81/jellyfin-db-sync
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is the chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the name of the chart
+nameOverride: ""
+
+# -- Override the full name of the release
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Specifies whether a service account should be created
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- The name of the service account to use
+  name: ""
+  # -- Automount API credentials for a service account
+  automountServiceAccountToken: false
+
+# -- Annotations to add to the pod
+podAnnotations: {}
+
+# -- Labels to add to the pod
+podLabels: {}
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# -- Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  # -- Service type
+  type: ClusterIP
+  # -- Service port
+  port: 8080
+  # -- Target container port
+  targetPort: 8080
+  # -- Annotations to add to the service
+  annotations: {}
+
+ingress:
+  # -- Enable ingress
+  enabled: false
+  # -- Ingress class name
+  className: ""
+  # -- Annotations to add to the ingress
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  # -- Ingress hosts configuration
+  hosts:
+    - host: jellyfin-db-sync.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- Ingress TLS configuration
+  tls: []
+  #  - secretName: jellyfin-db-sync-tls
+  #    hosts:
+  #      - jellyfin-db-sync.local
+
+resources:
+  # -- Resource limits
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  # -- Resource requests
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# -- Liveness probe configuration
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# -- Readiness probe configuration
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Autoscaling - not recommended for SQLite-based app
+autoscaling:
+  # -- Enable horizontal pod autoscaler
+  enabled: false
+  # -- Minimum replicas
+  minReplicas: 1
+  # -- Maximum replicas
+  maxReplicas: 1
+  # -- Target CPU utilization percentage
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# Persistence for SQLite database
+persistence:
+  # -- Enable persistence for SQLite database
+  enabled: true
+  # -- Storage class name
+  storageClass: ""
+  # -- Access modes
+  accessModes:
+    - ReadWriteOnce
+  # -- Size of the PVC
+  size: 1Gi
+  # -- Annotations for the PVC
+  annotations: {}
+  # -- Use an existing PVC
+  existingClaim: ""
+
+# -- Additional volumes
+extraVolumes: []
+# - name: extra-config
+#   configMap:
+#     name: extra-config
+
+# -- Additional volume mounts
+extraVolumeMounts: []
+# - name: extra-config
+#   mountPath: /config/extra
+
+# -- Additional environment variables
+extraEnv: []
+# - name: DEBUG
+#   value: "true"
+
+# -- Additional environment variables from secrets/configmaps
+extraEnvFrom: []
+# - secretRef:
+#     name: my-secret
+
+# Application configuration
+config:
+  # -- Jellyfin servers configuration
+  # @default -- See values.yaml
+  servers: []
+  # - name: server1
+  #   url: https://jellyfin-1.example.com
+  #   passwordless: false
+  #   # Option 1: API key directly (will be stored in chart-managed Secret)
+  #   apiKey: "your-api-key-here"
+  #   # Option 2: Reference existing Secret (recommended for production)
+  #   # existingSecret:
+  #   #   name: my-jellyfin-secrets
+  #   #   key: server1-api-key
+  # - name: server2
+  #   url: https://jellyfin-2.example.com
+  #   passwordless: true
+  #   existingSecret:
+  #     name: my-jellyfin-secrets
+  #     key: server2-api-key
+
+  # -- Sync settings
+  sync:
+    playbackProgress: true
+    watchedStatus: true
+    favorites: true
+    ratings: true
+    playlists: true
+    likes: true
+    playCount: true
+    lastPlayedDate: true
+    audioStream: true
+    subtitleStream: true
+    progressDebounceSeconds: 30
+    workerIntervalSeconds: 5.0
+    maxRetries: 5
+    dryRun: false
+
+  # -- Path sync policies for retry behavior
+  pathSyncPolicy: []
+  # - prefix: /mnt/nfs/movies
+  #   absentRetryCount: 10
+  #   retryDelaySeconds: 600
+
+  # -- Database settings
+  database:
+    path: /data/jellyfin-db-sync.db
+
+  # -- Server settings
+  server:
+    host: "0.0.0.0"
+    port: 8080
+
+  # -- Logging settings
+  logging:
+    level: INFO
+
+# Prometheus ServiceMonitor
+serviceMonitor:
+  # -- Enable ServiceMonitor for Prometheus scraping
+  enabled: false
+  # -- Namespace for the ServiceMonitor (defaults to release namespace)
+  namespace: ""
+  # -- Labels to add to the ServiceMonitor
+  labels: {}
+  # -- Interval for Prometheus scraping
+  interval: 30s
+  # -- Scrape timeout
+  scrapeTimeout: 10s
+  # -- Path to scrape metrics from
+  path: /metrics
+  # -- Honor labels from the target
+  honorLabels: false
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  # -- Enable PodDisruptionBudget
+  enabled: false
+  # -- Minimum available pods
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# -- Init containers
+initContainers: []
+
+# -- Sidecar containers
+sidecarContainers: []
