@@ -510,3 +510,272 @@ class TestWorkerLifecycle:
         await engine.stop_worker()
 
         await engine.stop_worker()
+
+
+class TestSyncLoopPrevention:
+    """Test sync loop prevention using cooldown mechanism."""
+
+    def test_get_item_identity_key_with_path(self, test_config):
+        """Test identity key generation with item path."""
+        engine = SyncEngine(test_config)
+
+        key = engine._get_item_identity_key("/movies/test.mkv")
+        assert key == "path:/movies/test.mkv"
+
+    def test_get_item_identity_key_with_imdb(self, test_config):
+        """Test identity key generation with IMDB ID."""
+        engine = SyncEngine(test_config)
+
+        key = engine._get_item_identity_key(None, provider_imdb="tt1234567")
+        assert key == "imdb:tt1234567"
+
+    def test_get_item_identity_key_with_tmdb(self, test_config):
+        """Test identity key generation with TMDB ID."""
+        engine = SyncEngine(test_config)
+
+        key = engine._get_item_identity_key(None, provider_tmdb="12345")
+        assert key == "tmdb:12345"
+
+    def test_get_item_identity_key_with_tvdb(self, test_config):
+        """Test identity key generation with TVDB ID."""
+        engine = SyncEngine(test_config)
+
+        key = engine._get_item_identity_key(None, provider_tvdb="67890")
+        assert key == "tvdb:67890"
+
+    def test_get_item_identity_key_path_takes_priority(self, test_config):
+        """Test that path takes priority over provider IDs."""
+        engine = SyncEngine(test_config)
+
+        key = engine._get_item_identity_key(
+            "/movies/test.mkv",
+            provider_imdb="tt1234567",
+            provider_tmdb="12345",
+        )
+        assert key == "path:/movies/test.mkv"
+
+    def test_get_item_identity_key_no_identifiers(self, test_config):
+        """Test identity key generation with no identifiers."""
+        engine = SyncEngine(test_config)
+
+        key = engine._get_item_identity_key(None)
+        assert key == ""
+
+    def test_cooldown_set_and_check_with_path(self, test_config):
+        """Test cooldown is set and checked correctly using item path."""
+        engine = SyncEngine(test_config)
+
+        # Initially not in cooldown
+        assert not engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # Set cooldown
+        engine._set_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # Now should be in cooldown
+        assert engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+    def test_cooldown_different_event_types_independent(self, test_config):
+        """Test that cooldowns for different event types are independent."""
+        engine = SyncEngine(test_config)
+
+        # Set cooldown for WATCHED
+        engine._set_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # WATCHED should be in cooldown
+        assert engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # FAVORITE should NOT be in cooldown
+        assert not engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.FAVORITE,
+        )
+
+    def test_cooldown_different_servers_independent(self, test_config):
+        """Test that cooldowns for different servers are independent."""
+        engine = SyncEngine(test_config)
+
+        # Set cooldown for wan
+        engine._set_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # wan should be in cooldown
+        assert engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # lan should NOT be in cooldown
+        assert not engine._is_in_cooldown(
+            server="lan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+    def test_cooldown_with_provider_ids(self, test_config):
+        """Test cooldown works with provider IDs instead of path."""
+        engine = SyncEngine(test_config)
+
+        # Set cooldown using IMDB ID
+        engine._set_cooldown(
+            server="wan",
+            username="testuser",
+            item_path=None,
+            event_type=SyncEventType.WATCHED,
+            provider_imdb="tt1234567",
+        )
+
+        # Should be in cooldown with same IMDB ID
+        assert engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path=None,
+            event_type=SyncEventType.WATCHED,
+            provider_imdb="tt1234567",
+        )
+
+        # Should NOT be in cooldown with different IMDB ID
+        assert not engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path=None,
+            event_type=SyncEventType.WATCHED,
+            provider_imdb="tt9999999",
+        )
+
+    def test_cooldown_without_identifiers_returns_false(self, test_config):
+        """Test that cooldown check returns False when no identifiers."""
+        engine = SyncEngine(test_config)
+
+        # Without identifiers, should not be in cooldown (allows sync)
+        assert not engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path=None,
+            event_type=SyncEventType.WATCHED,
+        )
+
+    @pytest.mark.asyncio
+    async def test_enqueue_filters_cooldown_events(self, test_config, db):
+        """Test that enqueue_events filters out events in cooldown."""
+        engine = SyncEngine(test_config)
+
+        # Set cooldown for wan server for WATCHED event (simulating we just synced TO wan)
+        engine._set_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # Now a webhook comes FROM wan for the same item with only is_played
+        # (so only WATCHED event is generated, not FAVORITE)
+        payload = WebhookPayload(
+            event="PlaybackStop",  # This generates only WATCHED event when played_to_completion
+            user_id="user-123",
+            username="testuser",
+            item_id="item-456",
+            item_name="Test Movie",
+            item_path="/movies/test.mkv",
+            played_to_completion=True,
+        )
+
+        with patch("jellyfin_db_sync.sync.engine.get_db", return_value=db):
+            enqueued = await engine.enqueue_events(payload, "wan")
+
+        # Should NOT enqueue anything since the WATCHED event from wan is in cooldown
+        assert enqueued == 0
+
+    @pytest.mark.asyncio
+    async def test_enqueue_allows_events_from_different_server(self, test_config, db):
+        """Test that events from different servers are not filtered."""
+        engine = SyncEngine(test_config)
+
+        # Set cooldown for wan server for WATCHED event
+        engine._set_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # Webhook comes FROM lan (different server) for same item
+        # Uses PlaybackStop to generate only WATCHED event
+        payload = WebhookPayload(
+            event="PlaybackStop",
+            user_id="user-123",
+            username="testuser",
+            item_id="item-456",
+            item_name="Test Movie",
+            item_path="/movies/test.mkv",
+            played_to_completion=True,
+        )
+
+        with patch("jellyfin_db_sync.sync.engine.get_db", return_value=db):
+            enqueued = await engine.enqueue_events(payload, "lan")
+
+        # Should enqueue events for wan and backup (not lan which is source)
+        # Event from lan is NOT in cooldown (cooldown is for wan)
+        assert enqueued == 2
+
+    def test_cleanup_expired_cooldowns(self, test_config):
+        """Test that expired cooldowns are cleaned up."""
+        from datetime import UTC, datetime, timedelta
+
+        engine = SyncEngine(test_config)
+
+        # Manually set an expired cooldown
+        key = "wan:testuser:path:/movies/test.mkv:watched"
+        engine._sync_cooldowns[key] = datetime.now(UTC) - timedelta(seconds=1)
+
+        # Check should return False (not in cooldown) and clean up
+        assert not engine._is_in_cooldown(
+            server="wan",
+            username="testuser",
+            item_path="/movies/test.mkv",
+            event_type=SyncEventType.WATCHED,
+        )
+
+        # Key should be removed
+        assert key not in engine._sync_cooldowns
+        # Key should be removed
+        assert key not in engine._sync_cooldowns
+        # Key should be removed
+        assert key not in engine._sync_cooldowns
+        # Key should be removed
+        assert key not in engine._sync_cooldowns
+        # Key should be removed
+        assert key not in engine._sync_cooldowns

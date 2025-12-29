@@ -59,13 +59,56 @@ class SyncEngine:
         """Update the last progress sync timestamp."""
         self._last_progress_sync[key] = datetime.now(UTC)
 
-    def _is_in_cooldown(self, server: str, username: str, item_id: str, event_type: SyncEventType) -> bool:
+    def _get_item_identity_key(
+        self,
+        item_path: str | None,
+        provider_imdb: str | None = None,
+        provider_tmdb: str | None = None,
+        provider_tvdb: str | None = None,
+    ) -> str:
+        """Generate a consistent identity key for an item across servers.
+
+        Uses item_path as primary (works for all content including home media).
+        Falls back to provider IDs for movies/series from public DBs.
+        """
+        if item_path:
+            return f"path:{item_path}"
+
+        # Fallback to provider IDs (consistent across servers)
+        if provider_imdb:
+            return f"imdb:{provider_imdb}"
+        if provider_tmdb:
+            return f"tmdb:{provider_tmdb}"
+        if provider_tvdb:
+            return f"tvdb:{provider_tvdb}"
+
+        # No consistent identifier available - cannot track cooldown
+        return ""
+
+    def _is_in_cooldown(
+        self,
+        server: str,
+        username: str,
+        item_path: str | None,
+        event_type: SyncEventType,
+        provider_imdb: str | None = None,
+        provider_tmdb: str | None = None,
+        provider_tvdb: str | None = None,
+    ) -> bool:
         """Check if this item/event is in cooldown (recently synced TO this server).
 
         This prevents sync loops: after syncing to server B, we ignore webhooks
         from server B about the same item for a short period.
+
+        Uses item_path or provider IDs as the identity key (not item_id, which
+        differs across servers).
         """
-        key = f"{server}:{username}:{item_id}:{event_type.value}"
+        item_key = self._get_item_identity_key(item_path, provider_imdb, provider_tmdb, provider_tvdb)
+        if not item_key:
+            # No consistent identifier - can't track, allow sync
+            return False
+
+        key = f"{server}:{username}:{item_key}:{event_type.value}"
         expiry = self._sync_cooldowns.get(key)
 
         if expiry is None:
@@ -77,16 +120,36 @@ class SyncEngine:
             del self._sync_cooldowns[key]
             return False
 
+        logger.debug(f"Event in cooldown (ignoring sync loop): {key}")
         return True
 
-    def _set_cooldown(self, server: str, username: str, item_id: str, event_type: SyncEventType) -> None:
+    def _set_cooldown(
+        self,
+        server: str,
+        username: str,
+        item_path: str | None,
+        event_type: SyncEventType,
+        provider_imdb: str | None = None,
+        provider_tmdb: str | None = None,
+        provider_tvdb: str | None = None,
+    ) -> None:
         """Set cooldown for an item after syncing it TO a server.
 
         After we sync to server B, we'll ignore webhooks FROM server B
         about this item for SYNC_COOLDOWN_SECONDS.
+
+        Uses item_path or provider IDs as the identity key (not item_id, which
+        differs across servers).
         """
-        key = f"{server}:{username}:{item_id}:{event_type.value}"
+        item_key = self._get_item_identity_key(item_path, provider_imdb, provider_tmdb, provider_tvdb)
+        if not item_key:
+            # No consistent identifier - can't track cooldown
+            logger.warning(f"Cannot set cooldown: no item_path or provider IDs for {server}")
+            return
+
+        key = f"{server}:{username}:{item_key}:{event_type.value}"
         self._sync_cooldowns[key] = datetime.now(UTC) + timedelta(seconds=SYNC_COOLDOWN_SECONDS)
+        logger.debug(f"Set cooldown for: {key}")
 
     def _cleanup_expired_cooldowns(self) -> None:
         """Remove expired cooldown entries."""
@@ -127,7 +190,15 @@ class SyncEngine:
         events_data = [
             e
             for e in events_data
-            if not self._is_in_cooldown(source_server_name, payload.username, payload.item_id, e["event_type"])
+            if not self._is_in_cooldown(
+                source_server_name,
+                payload.username,
+                payload.item_path,
+                e["event_type"],
+                payload.provider_imdb,
+                payload.provider_tmdb,
+                payload.provider_tvdb,
+            )
         ]
 
         if not events_data:
@@ -416,8 +487,11 @@ class SyncEngine:
                 self._set_cooldown(
                     target_server.name,
                     event.username,
-                    event.item_id,
+                    event.item_path,
                     event.event_type,
+                    event.provider_imdb,
+                    event.provider_tmdb,
+                    event.provider_tvdb,
                 )
 
             return SyncResult(
