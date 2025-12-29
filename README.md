@@ -33,6 +33,11 @@ Bidirectional sync service for multiple Jellyfin instances with WAL-based event 
   - Favorites
   - Ratings
   - Playlists
+- **User sync**:
+  - Auto-create users on all servers when created on one
+  - Auto-delete users from all servers when deleted from one
+  - Passwordless servers: created without password
+  - Password servers: created with random password
 - **Item matching**:
   - Primary: by file path (works for all content including home media)
   - Fallback: by provider IDs (IMDB/TMDB/TVDB)
@@ -187,14 +192,16 @@ For each Jellyfin server, configure the Webhook Plugin:
 
    - **Webhook URL**: `http://jellyfin-db-sync:8080/webhook/{server_name}`
    - **Notification Type**: Select:
-     - Playback Start
-     - Playback Stop
-     - Playback Progress
-     - User Data Saved
-   - **User Filter**: (optional)
-   - **Item Type**: Movies, Episodes, etc.
+     - ✅ Playback Progress
+     - ✅ Playback Stop
+     - ✅ User Data Saved
+     - ✅ User Created
+     - ✅ User Deleted
+   - **User Filter**: (optional) — leave empty for all users
+   - **Item Type**: Movies, Episodes, Season, Series, Albums, Songs, Videos
+   - **Send All Properties**: ✅ Enabled (ignores template)
 
-4. **Template** (Generic Destination):
+4. **Template** (if not using "Send All Properties"):
 
 ```json
 {
@@ -298,15 +305,35 @@ mypy src/
 ## How it works
 
 1. **Webhook Reception**: Jellyfin sends events via Webhook Plugin to `/webhook/{server_name}`
-2. **Event Queuing**: Events are stored in `pending_events` table (WAL pattern)
-3. **User Mapping**: Users are matched by username across servers
-4. **Item Matching**:
+2. **User Sync**: UserCreated/UserDeleted events create/delete users on all servers
+3. **Event Queuing**: Playback/UserData events are stored in `pending_events` table (WAL pattern)
+4. **User Mapping**: Users are matched by username across servers
+5. **Item Matching**:
    - First, try to match by file path (primary method)
    - Fall back to provider IDs (IMDB, TMDB, TVDB) if path doesn't match
-5. **Worker Processing**: Background worker processes pending events with retries
-6. **Path Policy**: If item not found and path matches a policy, schedule for retry
-7. **Sync Execution**: Apply changes to target server via Jellyfin API
-8. **Logging**: Record results in `sync_log` table
+6. **Cooldown**: 30-second cooldown prevents sync loops (A→B→A→B...)
+7. **Worker Processing**: Background worker processes pending events with retries
+8. **Path Policy**: If item not found and path matches a policy, schedule for retry
+9. **Sync Execution**: Apply changes to target server via Jellyfin API
+10. **Logging**: Record results in `sync_log` table
+
+### Webhook Events
+
+| Event                 | Action                                          |
+| --------------------- | ----------------------------------------------- |
+| **Playback Progress** | Syncs playback position to other servers        |
+| **Playback Stop**     | Marks item as watched when played to completion |
+| **User Data Saved**   | Syncs watched/favorite status changes           |
+| **User Created**      | Creates user on all other servers               |
+| **User Deleted**      | Deletes user from all servers                   |
+
+### User Creation Behavior
+
+When a user is created on any server:
+
+- **Passwordless servers** (`passwordless: true`): User created without password
+- **Password servers** (`passwordless: false`): User created with random 16-character password
+- The random password is logged and returned in webhook response for admin to share
 
 ## License
 

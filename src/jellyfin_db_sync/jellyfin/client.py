@@ -59,6 +59,57 @@ class JellyfinClient:
         user = await self.get_user_by_name(username)
         return user.get("Id") if user else None
 
+    async def create_user(self, username: str, password: str | None = None) -> dict[str, Any] | None:
+        """
+        Create a new user on the server.
+
+        Args:
+            username: The username for the new user
+            password: Password for the user (None for passwordless servers)
+
+        Returns:
+            User data dict if successful, None otherwise
+        """
+        try:
+            response = await self._request(
+                "POST",
+                "/Users/New",
+                json={
+                    "Name": username,
+                    "Password": password or "",
+                },
+            )
+            user = response.json()
+            logger.info(f"Created user '{username}' on {self.server.name}")
+            return user
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                logger.warning(f"User '{username}' may already exist on {self.server.name}")
+            else:
+                logger.error(f"Failed to create user '{username}' on {self.server.name}: {e}")
+            return None
+
+    async def delete_user(self, user_id: str) -> bool:
+        """
+        Delete a user from the server.
+
+        Args:
+            user_id: The Jellyfin user ID to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            await self._request(
+                "DELETE",
+                f"/Users/{user_id}",
+            )
+            logger.info(f"Deleted user {user_id} from {self.server.name}")
+            return True
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Failed to delete user {user_id} from {self.server.name}: {e}")
+            return False
+
     # ========== Item Lookup ==========
 
     async def find_item_by_path(

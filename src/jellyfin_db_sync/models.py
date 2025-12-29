@@ -14,6 +14,8 @@ class EventType(str, Enum):
     PLAYBACK_PROGRESS = "PlaybackProgress"
     ITEM_ADDED = "ItemAdded"
     USER_DATA_SAVED = "UserDataSaved"
+    USER_CREATED = "UserCreated"
+    USER_DELETED = "UserDeleted"
     # More events can be added as needed
 
 

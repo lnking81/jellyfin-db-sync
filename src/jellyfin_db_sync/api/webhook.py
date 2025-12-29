@@ -1,11 +1,15 @@
 """Webhook receiver for Jellyfin events."""
 
 import logging
+import secrets
+import string
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
 from ..config import get_config
+from ..database import get_db
+from ..jellyfin import JellyfinClient
 from ..models import WebhookPayload
 from ..sync import SyncEngine
 
@@ -14,12 +18,117 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
 
+def generate_random_password(length: int = 16) -> str:
+    """Generate a random password for new users on password-required servers."""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 def get_engine(request: Request) -> SyncEngine:
     """Get the sync engine from app state."""
     engine = getattr(request.app.state, "engine", None)
     if engine is None:
         raise RuntimeError("SyncEngine not initialized in app state")
     return engine
+
+
+async def sync_user_creation(source_server: str, username: str, user_id: str) -> dict[str, Any]:
+    """
+    Create user on all other servers when a user is created.
+
+    - Passwordless servers: create without password
+    - Password servers: create with random password (user must reset)
+    """
+    config = get_config()
+    db = await get_db()
+    results: dict[str, Any] = {"created": [], "skipped": [], "failed": []}
+
+    # Save mapping for source server
+    await db.upsert_user_mapping(
+        username=username.lower(),
+        server_name=source_server,
+        jellyfin_user_id=user_id,
+    )
+
+    # Create on other servers
+    for server in config.servers:
+        if server.name == source_server:
+            continue
+
+        client = JellyfinClient(server)
+
+        # Check if user already exists
+        existing = await client.get_user_by_name(username)
+        if existing:
+            logger.info(f"User '{username}' already exists on {server.name}")
+            # Update mapping anyway
+            await db.upsert_user_mapping(
+                username=username.lower(),
+                server_name=server.name,
+                jellyfin_user_id=existing["Id"],
+            )
+            results["skipped"].append(server.name)
+            continue
+
+        # Determine password
+        password = None if server.passwordless else generate_random_password()
+
+        # Create user
+        new_user = await client.create_user(username, password)
+        if new_user:
+            await db.upsert_user_mapping(
+                username=username.lower(),
+                server_name=server.name,
+                jellyfin_user_id=new_user["Id"],
+            )
+            results["created"].append(
+                {
+                    "server": server.name,
+                    "passwordless": server.passwordless,
+                    "password": password,  # Return so admin can share if needed
+                }
+            )
+        else:
+            results["failed"].append(server.name)
+
+    return results
+
+
+async def sync_user_deletion(source_server: str, username: str) -> dict[str, Any]:
+    """Delete user from all servers when deleted from one."""
+    config = get_config()
+    db = await get_db()
+    results: dict[str, Any] = {"deleted": [], "not_found": [], "failed": []}
+
+    # Delete mapping for source server
+    await db.delete_user_mapping(username=username.lower(), server_name=source_server)
+    results["deleted"].append(source_server)
+
+    # Delete from other servers
+    for server in config.servers:
+        if server.name == source_server:
+            continue
+
+        client = JellyfinClient(server)
+
+        # Find user
+        user = await client.get_user_by_name(username)
+        if not user:
+            logger.info(f"User '{username}' not found on {server.name}")
+            results["not_found"].append(server.name)
+            # Still remove mapping if exists
+            await db.delete_user_mapping(username=username.lower(), server_name=server.name)
+            continue
+
+        # Delete user
+        success = await client.delete_user(user["Id"])
+        if success:
+            await db.delete_user_mapping(username=username.lower(), server_name=server.name)
+            results["deleted"].append(server.name)
+        else:
+            results["failed"].append(server.name)
+
+    return results
 
 
 @router.post("/{server_name}")
@@ -53,6 +162,31 @@ async def receive_webhook(
     except Exception as e:
         logger.error("Failed to parse webhook payload: %s", e)
         raise HTTPException(status_code=400, detail="Invalid webhook payload") from e
+
+    # Handle user lifecycle events (sync to all servers)
+    if payload.event == "UserCreated":
+        if payload.username and payload.user_id:
+            logger.info(f"User created on {server_name}: {payload.username} — syncing to other servers")
+            results = await sync_user_creation(server_name, payload.username, payload.user_id)
+            return {
+                "status": "user_synced",
+                "username": payload.username,
+                "source_server": server_name,
+                **results,
+            }
+        return {"status": "skipped", "reason": "missing user info"}
+
+    if payload.event == "UserDeleted":
+        if payload.username:
+            logger.info(f"User deleted on {server_name}: {payload.username} — deleting from all servers")
+            results = await sync_user_deletion(server_name, payload.username)
+            return {
+                "status": "user_deleted_all",
+                "username": payload.username,
+                "source_server": server_name,
+                **results,
+            }
+        return {"status": "skipped", "reason": "missing username"}
 
     # Skip if no username (can't sync without knowing the user)
     if not payload.username:

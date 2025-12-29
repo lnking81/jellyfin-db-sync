@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..config import Config, ServerConfig, get_config
@@ -13,6 +13,11 @@ from ..jellyfin import JellyfinClient
 from ..models import PendingEvent, SyncEventType, SyncResult, WebhookPayload
 
 logger = logging.getLogger(__name__)
+
+
+# Cooldown period to prevent sync loops (seconds)
+# When we sync item X to server B, ignore webhooks from B about item X for this duration
+SYNC_COOLDOWN_SECONDS = 30
 
 
 class SyncEngine:
@@ -29,6 +34,9 @@ class SyncEngine:
         self._last_progress_sync: dict[str, datetime] = {}
         self._running = False
         self._worker_task: asyncio.Task[None] | None = None
+        # Cooldown tracking: key = "server:username:item_id:event_type" -> expiry time
+        # Prevents sync loops by ignoring return webhooks after we just synced
+        self._sync_cooldowns: dict[str, datetime] = {}
 
     def _get_client(self, server: ServerConfig) -> JellyfinClient:
         """Get or create a client for a server."""
@@ -51,6 +59,42 @@ class SyncEngine:
         """Update the last progress sync timestamp."""
         self._last_progress_sync[key] = datetime.now(UTC)
 
+    def _is_in_cooldown(self, server: str, username: str, item_id: str, event_type: SyncEventType) -> bool:
+        """Check if this item/event is in cooldown (recently synced TO this server).
+
+        This prevents sync loops: after syncing to server B, we ignore webhooks
+        from server B about the same item for a short period.
+        """
+        key = f"{server}:{username}:{item_id}:{event_type.value}"
+        expiry = self._sync_cooldowns.get(key)
+
+        if expiry is None:
+            return False
+
+        now = datetime.now(UTC)
+        if now >= expiry:
+            # Cooldown expired, clean up
+            del self._sync_cooldowns[key]
+            return False
+
+        return True
+
+    def _set_cooldown(self, server: str, username: str, item_id: str, event_type: SyncEventType) -> None:
+        """Set cooldown for an item after syncing it TO a server.
+
+        After we sync to server B, we'll ignore webhooks FROM server B
+        about this item for SYNC_COOLDOWN_SECONDS.
+        """
+        key = f"{server}:{username}:{item_id}:{event_type.value}"
+        self._sync_cooldowns[key] = datetime.now(UTC) + timedelta(seconds=SYNC_COOLDOWN_SECONDS)
+
+    def _cleanup_expired_cooldowns(self) -> None:
+        """Remove expired cooldown entries."""
+        now = datetime.now(UTC)
+        expired_keys = [k for k, v in self._sync_cooldowns.items() if now >= v]
+        for key in expired_keys:
+            del self._sync_cooldowns[key]
+
     # ========== Producer: Webhook → WAL ==========
 
     async def enqueue_events(
@@ -65,6 +109,9 @@ class SyncEngine:
         """
         db = await get_db()
 
+        # Periodic cleanup of expired cooldowns
+        self._cleanup_expired_cooldowns()
+
         # Ensure user mapping exists for source server
         await db.upsert_user_mapping(
             username=payload.username,
@@ -74,6 +121,14 @@ class SyncEngine:
 
         # Parse webhook into event data
         events_data = self._parse_webhook_to_event_data(payload, source_server_name)
+
+        # Filter out events that are in cooldown (prevent sync loops)
+        # If we recently synced this item TO source_server, ignore webhooks FROM source_server
+        events_data = [
+            e
+            for e in events_data
+            if not self._is_in_cooldown(source_server_name, payload.username, payload.item_id, e["event_type"])
+        ]
 
         if not events_data:
             logger.debug(f"No sync events generated from webhook: {payload.event}")
@@ -86,6 +141,19 @@ class SyncEngine:
         enqueued = 0
         for event_data in events_data:
             for target_server in target_servers:
+                # Deduplication: skip if similar event already pending
+                if await db.has_pending_event(
+                    event_type=event_data["event_type"],
+                    target_server=target_server.name,
+                    username=payload.username,
+                    item_id=payload.item_id,
+                ):
+                    logger.debug(
+                        f"Skipping duplicate event: {event_data['event_type'].value} "
+                        f"for {payload.item_name} → {target_server.name}"
+                    )
+                    continue
+
                 await db.add_pending_event(
                     event_type=event_data["event_type"],
                     source_server=source_server_name,
@@ -144,7 +212,8 @@ class SyncEngine:
 
         elif payload.event == "UserDataSaved":
             # Handle various user data changes
-            if self.config.sync.watched_status:
+            # Only sync if we have a definitive value (not None)
+            if self.config.sync.watched_status and payload.is_played is not None:
                 events.append(
                     {
                         "event_type": SyncEventType.WATCHED,
@@ -152,7 +221,7 @@ class SyncEngine:
                     }
                 )
 
-            if self.config.sync.favorites:
+            if self.config.sync.favorites and payload.is_favorite is not None:
                 events.append(
                     {
                         "event_type": SyncEventType.FAVORITE,
@@ -339,6 +408,17 @@ class SyncEngine:
                 event_type=event.event_type,
                 event_data=event_data,
             )
+
+            if success:
+                # Set cooldown to prevent sync loop
+                # After syncing to target_server, ignore webhooks FROM target_server
+                # about this item for a period
+                self._set_cooldown(
+                    target_server.name,
+                    event.username,
+                    event.item_id,
+                    event.event_type,
+                )
 
             return SyncResult(
                 success=success,

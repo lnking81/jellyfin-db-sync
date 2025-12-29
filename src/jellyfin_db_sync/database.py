@@ -178,6 +178,17 @@ class Database:
         assert mapping is not None
         return mapping
 
+    async def delete_user_mapping(self, username: str, server_name: str) -> bool:
+        """Delete a user mapping. Returns True if deleted."""
+        assert self._db is not None
+
+        cursor = await self._db.execute(
+            "DELETE FROM user_mappings WHERE username = ? AND server_name = ?",
+            (username, server_name),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
     async def log_sync(
         self,
         event_type: str,
@@ -202,6 +213,31 @@ class Database:
         await self._db.commit()
 
     # ========== Pending Events (WAL) ==========
+
+    async def has_pending_event(
+        self,
+        event_type: SyncEventType,
+        target_server: str,
+        username: str,
+        item_id: str,
+    ) -> bool:
+        """Check if a similar pending event already exists (deduplication)."""
+        assert self._db is not None
+
+        async with self._db.execute(
+            """
+            SELECT 1 FROM pending_events
+            WHERE event_type = ?
+              AND target_server = ?
+              AND username = ?
+              AND item_id = ?
+              AND status IN ('pending', 'processing', 'waiting_for_item')
+            LIMIT 1
+            """,
+            (event_type.value, target_server, username, item_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row is not None
 
     async def add_pending_event(
         self,
@@ -504,6 +540,31 @@ class Database:
             row = await cursor.fetchone()
             return row["count"] if row else 0
 
+    async def get_all_user_mappings(self) -> list[UserMapping]:
+        """Get all user mappings."""
+        assert self._db is not None
+
+        mappings: list[UserMapping] = []
+        async with self._db.execute(
+            """
+            SELECT id, username, server_name, jellyfin_user_id, created_at, updated_at
+            FROM user_mappings
+            ORDER BY username, server_name
+            """
+        ) as cursor:
+            async for row in cursor:
+                mappings.append(
+                    UserMapping(
+                        id=row["id"],
+                        username=row["username"],
+                        server_name=row["server_name"],
+                        jellyfin_user_id=row["jellyfin_user_id"],
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                    )
+                )
+        return mappings
+
     async def get_sync_log_count(self) -> int:
         """Get count of sync log entries."""
         assert self._db is not None
@@ -579,21 +640,39 @@ class Database:
         await self._db.commit()
         return cursor.rowcount > 0
 
-    async def get_recent_sync_log(self, limit: int = 100) -> list[dict[str, object]]:
-        """Get recent sync log entries."""
+    async def get_recent_sync_log(self, limit: int = 100, since_minutes: int | None = None) -> list[dict[str, object]]:
+        """Get recent sync log entries.
+
+        Args:
+            limit: Maximum number of entries to return
+            since_minutes: Only return entries from the last N minutes (default: all)
+        """
         assert self._db is not None
 
         entries: list[dict[str, object]] = []
-        async with self._db.execute(
+
+        if since_minutes is not None:
+            since_time = (datetime.now(UTC) - timedelta(minutes=since_minutes)).isoformat()
+            query = """
+                SELECT id, event_type, source_server, target_server,
+                       username, item_id, success, message, created_at
+                FROM sync_log
+                WHERE created_at >= ?
+                ORDER BY created_at DESC
+                LIMIT ?
             """
-            SELECT id, event_type, source_server, target_server,
-                   username, item_id, success, message, created_at
-            FROM sync_log
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ) as cursor:
+            params = (since_time, limit)
+        else:
+            query = """
+                SELECT id, event_type, source_server, target_server,
+                       username, item_id, success, message, created_at
+                FROM sync_log
+                ORDER BY created_at DESC
+                LIMIT ?
+            """
+            params = (limit,)
+
+        async with self._db.execute(query, params) as cursor:
             async for row in cursor:
                 entries.append(
                     {
@@ -634,5 +713,13 @@ async def close_db() -> None:
     global _db
     if _db:
         await _db.close()
+        _db = None
+        _db = None
+        _db = None
+        _db = None
+        _db = None
+        _db = None
+        _db = None
+        _db = None
         _db = None
         _db = None
