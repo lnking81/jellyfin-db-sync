@@ -236,7 +236,7 @@ class TestPlaybackProgress:
 
     @pytest.mark.asyncio
     async def test_update_playback_progress(self, client):
-        """Test updating playback progress."""
+        """Test updating playback progress via UserData endpoint."""
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
 
@@ -252,8 +252,8 @@ class TestPlaybackProgress:
         assert result is True
         mock_request.assert_called_once_with(
             "POST",
-            "/Users/user-1/PlayingItems/item-123/Progress",
-            params={"positionTicks": 36000000000},
+            "/Users/user-1/Items/item-123/UserData",
+            json={"PlaybackPositionTicks": 36000000000},
         )
 
     @pytest.mark.asyncio

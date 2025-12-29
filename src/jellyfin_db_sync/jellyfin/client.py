@@ -206,12 +206,19 @@ class JellyfinClient:
         item_id: str,
         position_ticks: int,
     ) -> bool:
-        """Update playback position for an item."""
+        """
+        Update playback position for an item.
+
+        Uses UserData endpoint instead of PlayingItems/Progress because:
+        - PlayingItems/Progress requires an active playback session
+        - Without a session, plugins like PlaybackReporting may crash
+        - UserData endpoint updates position without triggering session events
+        """
         try:
             await self._request(
                 "POST",
-                f"/Users/{user_id}/PlayingItems/{item_id}/Progress",
-                params={"positionTicks": position_ticks},
+                f"/Users/{user_id}/Items/{item_id}/UserData",
+                json={"PlaybackPositionTicks": position_ticks},
             )
             logger.debug("Updated progress on %s: item=%s, position=%s", self.server.name, item_id, position_ticks)
             return True
