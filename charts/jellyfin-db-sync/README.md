@@ -170,6 +170,18 @@ kubectl delete pvc jellyfin-db-sync
 kubectl logs -f -l app.kubernetes.io/name=jellyfin-db-sync
 ```
 
+### Check health endpoints
+
+```bash
+# Liveness probe
+kubectl exec -it deploy/jellyfin-db-sync -- curl -s http://localhost:8080/healthz
+
+# Readiness probe
+kubectl exec -it deploy/jellyfin-db-sync -- curl -s http://localhost:8080/readyz
+```
+
+**Note:** The health endpoints are `/healthz` (liveness) and `/readyz` (readiness), not `/health`.
+
 ### Access dashboard locally
 
 ```bash

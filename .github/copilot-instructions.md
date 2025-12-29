@@ -59,6 +59,23 @@ This is a **bidirectional sync service** for multiple Jellyfin instances using a
 
 Key flow: Webhook → `enqueue_events()` → `pending_events` table → Worker → `_sync_event()` → Jellyfin API → `sync_log`
 
+## API Endpoints Reference
+
+**IMPORTANT: Always verify these endpoints before configuring health checks!**
+
+| Endpoint                 | Method | Description                                  |
+| ------------------------ | ------ | -------------------------------------------- |
+| `/healthz`               | GET    | Liveness probe (always 200 if alive)         |
+| `/readyz`                | GET    | Readiness probe (checks DB, worker, servers) |
+| `/webhook/{server_name}` | POST   | Receive webhook from Jellyfin                |
+| `/api/status`            | GET    | Comprehensive system status                  |
+| `/api/queue`             | GET    | Queue status (pending, processing, failed)   |
+| `/api/events/pending`    | GET    | List pending events                          |
+| `/api/events/waiting`    | GET    | List events waiting for item import          |
+| `/`                      | GET    | Web dashboard                                |
+
+**Note:** There is NO `/health` endpoint! Use `/healthz` for liveness and `/readyz` for readiness probes.
+
 ## Project Structure
 
 ```

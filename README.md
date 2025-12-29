@@ -267,6 +267,8 @@ For each Jellyfin server, configure the Webhook Plugin:
 | `/healthz` | GET    | Liveness probe (always 200 if alive)         |
 | `/readyz`  | GET    | Readiness probe (checks DB, worker, servers) |
 
+**Note:** There is NO `/health` endpoint! Use `/healthz` for liveness and `/readyz` for readiness probes.
+
 ### Webhooks
 
 | Endpoint                 | Method | Description                   |
