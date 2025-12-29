@@ -38,6 +38,7 @@ class DatabaseConfig(BaseModel):
     """Database configuration."""
 
     path: str = "/data/jellyfin-db-sync.db"
+    journal_mode: str = "WAL"  # WAL, DELETE, TRUNCATE, MEMORY, OFF
 
 
 class ServerSettings(BaseModel):

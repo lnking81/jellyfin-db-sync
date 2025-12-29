@@ -46,6 +46,7 @@ data:
 
     database:
       path: {{ .Values.config.database.path | quote }}
+      journal_mode: {{ .Values.config.database.journalMode | default "WAL" | quote }}
 
     server:
       host: {{ .Values.config.server.host | quote }}

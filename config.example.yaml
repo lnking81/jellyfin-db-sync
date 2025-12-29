@@ -57,6 +57,9 @@ path_sync_policy:
 # Database settings
 database:
   path: /data/jellyfin-db-sync.db # SQLite database path
+  # Journal mode: WAL (default, fastest), DELETE (NFS compatible), TRUNCATE, MEMORY, OFF
+  # Use DELETE if storing database on NFS or network filesystem
+  journal_mode: WAL
 
 # Webhook server settings
 server:

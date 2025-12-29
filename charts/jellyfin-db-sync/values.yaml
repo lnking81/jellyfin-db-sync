@@ -218,6 +218,8 @@ config:
   # -- Database settings
   database:
     path: /data/jellyfin-db-sync.db
+    # -- Journal mode: WAL (default), DELETE (NFS compatible), TRUNCATE, MEMORY, OFF
+    journalMode: WAL
 
   # -- Server settings
   server:

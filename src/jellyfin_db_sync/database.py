@@ -12,14 +12,37 @@ from .models import PendingEvent, PendingEventStatus, SyncEventType, UserMapping
 class Database:
     """Async SQLite database for user mappings."""
 
-    def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or get_config().database.path
+    def __init__(self, db_path: str | None = None, journal_mode: str | None = None):
+        self._config_db_path = db_path
+        self._config_journal_mode = journal_mode
         self._db: aiosqlite.Connection | None = None
+
+    @property
+    def db_path(self) -> str:
+        """Get database path from config or override."""
+        if self._config_db_path:
+            return str(self._config_db_path)
+        return get_config().database.path
+
+    @property
+    def journal_mode(self) -> str:
+        """Get journal mode from config or override."""
+        if self._config_journal_mode:
+            return self._config_journal_mode.upper()
+        try:
+            return get_config().database.journal_mode.upper()
+        except RuntimeError:
+            return "WAL"  # Default if config not loaded (tests)
 
     async def connect(self) -> None:
         """Connect to the database and create tables."""
         self._db = await aiosqlite.connect(self.db_path)
         self._db.row_factory = aiosqlite.Row
+
+        # Set journal mode (WAL is default, use DELETE for NFS compatibility)
+        if self.journal_mode in ("WAL", "DELETE", "TRUNCATE", "MEMORY", "OFF"):
+            await self._db.execute(f"PRAGMA journal_mode={self.journal_mode}")
+
         await self._create_tables()
 
     async def close(self) -> None:
@@ -731,6 +754,7 @@ async def close_db() -> None:
     global _db
     if _db:
         await _db.close()
+        _db = None
         _db = None
         _db = None
         _db = None
