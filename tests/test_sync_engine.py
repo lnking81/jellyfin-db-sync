@@ -143,11 +143,12 @@ class TestWebhookParsing:
 
         events = engine._parse_webhook_to_event_data(payload, "wan")
 
-        # Should produce both watched and favorite events
-        assert len(events) == 2
+        # Should produce watched, favorite, and play_count events
+        assert len(events) == 3
         event_types = [e["event_type"] for e in events]
         assert SyncEventType.WATCHED in event_types
         assert SyncEventType.FAVORITE in event_types
+        assert SyncEventType.PLAY_COUNT in event_types
 
     def test_parse_unknown_event(self, test_config):
         """Test parsing unknown event type."""
@@ -332,6 +333,7 @@ class TestSyncExecution:
 
         mock_client = MagicMock()
         mock_client.update_playback_progress = AsyncMock(return_value=True)
+        mock_client.get_user_data = AsyncMock(return_value={"PlaybackPositionTicks": 0})
 
         result = await engine._execute_sync(
             client=mock_client,
@@ -845,6 +847,10 @@ class TestSyncLoopPrevention:
             event_type=SyncEventType.WATCHED,
         )
 
+        # Key should be removed
+        assert key not in engine._sync_cooldowns
+        # Key should be removed
+        assert key not in engine._sync_cooldowns
         # Key should be removed
         assert key not in engine._sync_cooldowns
         # Key should be removed

@@ -207,7 +207,8 @@ def test_webhook_user_data_saved(app_with_engine):
         "ItemId": "item-456",
         "Name": "Test Movie",
         "ItemType": "Movie",
-        "IsFavorite": True,
+        "Path": "/movies/test.mkv",  # Include Path to skip API call
+        "Favorite": True,  # Jellyfin webhook sends 'Favorite', not 'IsFavorite'
         "Played": True,
     }
 
@@ -229,6 +230,7 @@ def test_webhook_playback_progress(app_with_engine):
         "NotificationUsername": "testuser",
         "ItemId": "item-456",
         "Name": "Test Movie",
+        "Path": "/movies/test.mkv",  # Include Path to skip API call
         "PlaybackPositionTicks": 36000000000,  # 1 hour
         "PlaybackPosition": "01:00:00",
     }

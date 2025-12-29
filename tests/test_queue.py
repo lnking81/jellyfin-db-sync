@@ -210,7 +210,8 @@ class TestEventQueue:
         await db.mark_event_processing(event_id)
 
         # Simulate stale event (set updated_at to 10 minutes ago)
-        stale_time = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+        # Use the same format as reset_stale_processing: "%Y-%m-%d %H:%M:%S"
+        stale_time = (datetime.now(UTC) - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
         await db._db.execute("UPDATE pending_events SET updated_at = ? WHERE id = ?", (stale_time, event_id))
         await db._db.commit()
 

@@ -1,6 +1,5 @@
 """Tests for WebhookPayload model parsing."""
 
-
 from jellyfin_db_sync.models import EventType, SyncEventType, WebhookPayload
 
 
@@ -82,7 +81,7 @@ class TestWebhookPayloadParsing:
             "ItemId": "item-789",
             "Name": "The Matrix",
             "ItemType": "Movie",
-            "IsFavorite": True,
+            "Favorite": True,  # Jellyfin webhook sends 'Favorite', not 'IsFavorite'
             "Played": True,
         }
 
