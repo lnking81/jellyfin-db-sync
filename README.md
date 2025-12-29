@@ -346,6 +346,36 @@ ruff check . && ruff format .  # Lint and format
 mypy src/                 # Type checking
 ```
 
+### Releasing
+
+Use the release script to update versions, commit, tag, and push:
+
+```bash
+# Preview release (no changes)
+./scripts/release.sh --dry-run 0.1.0
+
+# Create and push release
+./scripts/release.sh 0.1.0
+
+# Create release locally (don't push)
+./scripts/release.sh --no-push 0.1.0
+```
+
+The script updates version in all files:
+
+- `pyproject.toml`
+- `charts/jellyfin-db-sync/Chart.yaml`
+- `src/jellyfin_db_sync/__init__.py`
+- `src/jellyfin_db_sync/main.py`
+- `src/jellyfin_db_sync/api/status.py`
+- `README.md`
+
+After pushing the tag, GitHub Actions will:
+
+- Build and push Docker image to GHCR
+- Create GitHub Release with changelog
+- Package and publish Helm chart
+
 ## How it works
 
 1. **Webhook Reception**: Jellyfin sends events via Webhook Plugin to `/webhook/{server_name}`
