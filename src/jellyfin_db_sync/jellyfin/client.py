@@ -9,6 +9,10 @@ from ..config import ServerConfig
 
 logger = logging.getLogger(__name__)
 
+# Connection pool limits
+DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+DEFAULT_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+
 
 class JellyfinClient:
     """Async client for Jellyfin API."""
@@ -20,6 +24,22 @@ class JellyfinClient:
             "X-Emby-Token": server.api_key,
             "Content-Type": "application/json",
         }
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the shared HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=DEFAULT_TIMEOUT,
+                limits=DEFAULT_LIMITS,
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def _request(
         self,
@@ -29,15 +49,15 @@ class JellyfinClient:
     ) -> httpx.Response:
         """Make an authenticated request to the Jellyfin API."""
         url = f"{self.base_url}{endpoint}"
-        async with httpx.AsyncClient() as client:
-            response = await client.request(
-                method,
-                url,
-                headers=self.headers,
-                **kwargs,
-            )
-            response.raise_for_status()
-            return response
+        client = await self._get_client()
+        response = await client.request(
+            method,
+            url,
+            headers=self.headers,
+            **kwargs,
+        )
+        response.raise_for_status()
+        return response
 
     # ========== User Operations ==========
 

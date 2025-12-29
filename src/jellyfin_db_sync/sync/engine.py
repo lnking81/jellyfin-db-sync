@@ -444,7 +444,7 @@ class SyncEngine:
 
             await asyncio.sleep(interval_seconds)
 
-    async def process_pending_events(self, limit: int = 100, max_concurrent: int = 10) -> int:
+    async def process_pending_events(self, limit: int = 100, max_concurrent: int = 5) -> int:
         """Process pending events from the queue. Returns number processed.
 
         Args:
@@ -467,21 +467,27 @@ class SyncEngine:
 
         async def process_one(event: PendingEvent) -> bool:
             async with semaphore:
-                result = await self._sync_event(event)
-                assert event.id is not None
-                if result.success:
-                    await db.mark_event_completed(event.id)
-                else:
-                    await db.mark_event_failed(event.id, result.message)
-                return result.success
+                try:
+                    result = await self._sync_event(event)
+                    assert event.id is not None
+                    if result.success:
+                        await db.mark_event_completed(event.id)
+                    else:
+                        await db.mark_event_failed(event.id, result.message)
+                    return result.success
+                except Exception as e:
+                    assert event.id is not None
+                    logger.warning("Error processing event %d: %s", event.id, e)
+                    await db.mark_event_failed(event.id, f"Connection error: {e}")
+                    return False
 
         results = await asyncio.gather(*[process_one(e) for e in events], return_exceptions=True)
 
         # Count successful (non-exception) results
-        processed = sum(1 for r in results if not isinstance(r, Exception))
+        processed = sum(1 for r in results if r is True)
         return processed
 
-    async def process_waiting_for_item_events(self, limit: int = 50, max_concurrent: int = 10) -> int:
+    async def process_waiting_for_item_events(self, limit: int = 50, max_concurrent: int = 5) -> int:
         """Process events that are waiting for items to appear.
 
         These are events where the item wasn't found on target server,
@@ -507,22 +513,28 @@ class SyncEngine:
 
         async def process_one(event: PendingEvent) -> bool:
             async with semaphore:
-                result = await self._sync_event(event)
-                assert event.id is not None
-                if result.success:
-                    # Check if it was actually synced or just re-queued for waiting
-                    if "Waiting for item" not in result.message:
-                        await db.mark_event_completed(event.id)
-                    # Otherwise it's already marked as waiting_for_item by _handle_item_not_found
-                    return True
-                else:
-                    await db.mark_event_failed(event.id, result.message)
+                try:
+                    result = await self._sync_event(event)
+                    assert event.id is not None
+                    if result.success:
+                        # Check if it was actually synced or just re-queued for waiting
+                        if "Waiting for item" not in result.message:
+                            await db.mark_event_completed(event.id)
+                        # Otherwise it's already marked as waiting_for_item by _handle_item_not_found
+                        return True
+                    else:
+                        await db.mark_event_failed(event.id, result.message)
+                        return False
+                except Exception as e:
+                    assert event.id is not None
+                    logger.warning("Error processing waiting event %d: %s", event.id, e)
+                    await db.mark_event_failed(event.id, f"Connection error: {e}")
                     return False
 
         results = await asyncio.gather(*[process_one(e) for e in events], return_exceptions=True)
 
         # Count successful (non-exception) results
-        processed = sum(1 for r in results if not isinstance(r, Exception))
+        processed = sum(1 for r in results if r is True)
         return processed
 
     async def _sync_event(self, event: PendingEvent) -> SyncResult:
