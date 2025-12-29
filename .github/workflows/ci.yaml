@@ -26,3 +26,28 @@ jobs:
 
       - name: Run tox ${{ matrix.env }}
         run: tox -e ${{ matrix.env }}
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Helm lint
+        run: helm lint charts/jellyfin-db-sync
+
+      - name: Helm template (default values)
+        run: helm template test-release charts/jellyfin-db-sync --debug
+
+      - name: Helm template (with servers)
+        run: |
+          helm template test-release charts/jellyfin-db-sync \
+            --set 'config.servers[0].name=server1' \
+            --set 'config.servers[0].url=https://jellyfin.example.com' \
+            --set 'config.servers[0].apiKey=test-key' \
+            --set persistence.enabled=true \
+            --set ingress.enabled=true
