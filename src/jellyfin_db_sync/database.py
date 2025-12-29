@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import aiosqlite
 
@@ -36,6 +37,10 @@ class Database:
 
     async def connect(self) -> None:
         """Connect to the database and create tables."""
+        # Ensure parent directory exists
+        db_path = Path(self.db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
         self._db = await aiosqlite.connect(self.db_path)
         self._db.row_factory = aiosqlite.Row
 
