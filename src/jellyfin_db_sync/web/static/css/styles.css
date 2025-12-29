@@ -251,6 +251,12 @@ h1 {
   color: var(--text-secondary);
 }
 
+.version {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
 .empty-state {
   text-align: center;
   padding: 2rem;

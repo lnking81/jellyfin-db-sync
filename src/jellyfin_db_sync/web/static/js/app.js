@@ -134,8 +134,9 @@ class Dashboard {
         statusEl.textContent = status.status.toUpperCase();
         statusEl.className = 'status-badge status-' + status.status;
 
-        // Uptime
+        // Uptime and version
         document.getElementById('uptime').textContent = this.formatUptime(status.uptime_seconds);
+        document.getElementById('version').textContent = `v${status.version}`;
 
         // Servers
         this.updateServers(status.servers);
