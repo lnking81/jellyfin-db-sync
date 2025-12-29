@@ -116,11 +116,42 @@ docker build -t jellyfin-db-sync .
 
 ### Kubernetes (Helm)
 
+#### Option 1: From Helm Repository (recommended)
+
 ```bash
-helm install jellyfin-db-sync ./charts/jellyfin-db-sync \
+# Add the Helm repository
+helm repo add jellyfin-db-sync https://lnking81.github.io/jellyfin-db-sync
+helm repo update
+
+# Install the chart
+helm install jellyfin-db-sync jellyfin-db-sync/jellyfin-db-sync \
   -n home-media \
+  --create-namespace \
   -f my-values.yaml
 ```
+
+#### Option 2: From GitHub Release
+
+```bash
+# Install directly from release tarball
+helm install jellyfin-db-sync \
+  https://github.com/lnking81/jellyfin-db-sync/releases/download/v0.1.0/jellyfin-db-sync-0.1.0.tgz \
+  -n home-media \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+#### Option 3: From Source
+
+```bash
+git clone https://github.com/lnking81/jellyfin-db-sync.git
+helm install jellyfin-db-sync ./jellyfin-db-sync/charts/jellyfin-db-sync \
+  -n home-media \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+See [charts/jellyfin-db-sync/README.md](charts/jellyfin-db-sync/README.md) for all configuration options.
 
 ## Configuration
 
