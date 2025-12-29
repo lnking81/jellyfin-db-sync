@@ -129,7 +129,15 @@ jellyfin-db-sync
 # Or with auto-reload:
 uvicorn jellyfin_db_sync.main:create_app --factory --reload --port 8080
 
-# Test & Lint
+# Test & Lint (using tox)
+tox                       # Run all checks (lint + type + test)
+tox -e test               # Run tests with coverage
+tox -e lint               # Run linters (ruff check and format)
+tox -e type               # Run type checking (mypy)
+tox -e helm               # Lint and test Helm chart
+tox -e format             # Auto-format code
+
+# Or run tools directly
 pytest                    # Uses tests/ with pytest-asyncio
 ruff check . && ruff format .
 mypy src/

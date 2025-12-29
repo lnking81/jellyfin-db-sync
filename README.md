@@ -321,16 +321,27 @@ uvicorn jellyfin_db_sync.main:create_app --factory --reload --port 8080
 
 ### Testing
 
+We use [tox](https://tox.wiki/) for testing and quality checks:
+
 ```bash
-pytest
+# Run all checks (lint + type + test)
+tox
+
+# Run specific environments
+tox -e test      # Run tests with coverage
+tox -e lint      # Run linters (ruff check and format)
+tox -e type      # Run type checking (mypy)
+tox -e helm      # Lint and test Helm chart
+tox -e format    # Auto-format code
+tox -e all       # Run all checks in one environment
 ```
 
-### Linting
+Or run tools directly:
 
 ```bash
-ruff check .
-ruff format .
-mypy src/
+pytest                    # Run tests
+ruff check . && ruff format .  # Lint and format
+mypy src/                 # Type checking
 ```
 
 ## How it works
