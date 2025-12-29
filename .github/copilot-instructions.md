@@ -198,3 +198,30 @@ Database class accepts optional `db_path` parameter for testing (bypasses global
 - Runtime: `CONFIG_PATH` env var or `config.yaml` in cwd
 - Docker: Mount to `/config/config.yaml`, data at `/data/`
 - See `config.example.yaml` for all options
+
+## CI/CD Workflows
+
+The project uses **reusable workflows** to avoid code duplication:
+
+```
+.github/workflows/
+├── test.yaml      ← Reusable: lint, type-check, test, helm-lint
+├── build.yaml     ← Reusable: Docker multi-arch build (amd64/arm64)
+├── ci.yaml        ← Calls test.yaml → build.yaml on push to master
+└── release.yaml   ← Calls test.yaml → build.yaml → create-release on tag
+```
+
+### Workflow Triggers
+
+| Workflow       | Trigger           | Jobs                          |
+| -------------- | ----------------- | ----------------------------- |
+| `ci.yaml`      | push/PR to master | test → build (only on push)   |
+| `release.yaml` | tag `v*`          | test → build → create-release |
+
+### Adding New Tests
+
+All test jobs are defined in `test.yaml`. Changes are automatically used by both `ci.yaml` and `release.yaml`.
+
+### Multi-Architecture Support
+
+Docker images are built for both `linux/amd64` and `linux/arm64` using QEMU + Buildx. Build configuration is in `build.yaml`.

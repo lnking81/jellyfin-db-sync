@@ -1,7 +1,7 @@
 # jellyfin-db-sync
 
 [![CI](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/ci.yaml/badge.svg)](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/ci.yaml)
-[![Build](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/build.yaml/badge.svg)](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/build.yaml)
+[![Release](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/release.yaml/badge.svg)](https://github.com/lnking81/jellyfin-db-sync/actions/workflows/release.yaml)
 [![Experimental](https://img.shields.io/badge/status-experimental-orange.svg)](https://github.com)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -372,9 +372,19 @@ The script updates version in all files:
 
 After pushing the tag, GitHub Actions will:
 
-- Build and push Docker image to GHCR
-- Create GitHub Release with changelog
-- Package and publish Helm chart
+1. Run all tests (lint, type-check, test, helm-lint)
+2. Build and push multi-arch Docker image (amd64/arm64) to GHCR
+3. Create GitHub Release with auto-generated changelog
+4. Package Helm chart and update repository index
+
+### CI/CD Workflows
+
+| Workflow       | Trigger           | Description                                         |
+| -------------- | ----------------- | --------------------------------------------------- |
+| `test.yaml`    | (reusable)        | Shared test jobs: lint, type-check, test, helm-lint |
+| `build.yaml`   | (reusable)        | Docker multi-arch build (amd64/arm64)               |
+| `ci.yaml`      | push/PR to master | Runs tests, builds Docker image on push             |
+| `release.yaml` | tag `v*`          | Runs tests → builds image → creates release         |
 
 ## How it works
 
