@@ -175,8 +175,7 @@ class SyncEngine:
 
         # Log all incoming webhooks in detail (DEBUG level)
         logger.debug(
-            "[WEBHOOK] server=%s, event=%s, user=%s, item=%s, path=%s, played=%s, "
-            "favorite=%s, position=%s, imdb=%s",
+            "[WEBHOOK] server=%s, event=%s, user=%s, item=%s, path=%s, played=%s, favorite=%s, position=%s, imdb=%s",
             source_server_name,
             payload.event,
             payload.username,
