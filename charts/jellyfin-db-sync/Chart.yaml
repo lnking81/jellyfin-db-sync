@@ -26,6 +26,13 @@ keywords:
 annotations:
   artifacthub.io/category: media
   artifacthub.io/license: MIT
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/images: |
+    - name: jellyfin-db-sync
+      image: ghcr.io/lnking81/jellyfin-db-sync:0.0.6
+      platforms:
+        - linux/amd64
+        - linux/arm64
   artifacthub.io/links: |
     - name: Documentation
       url: https://github.com/lnking81/jellyfin-db-sync#readme
