@@ -32,9 +32,15 @@ env/
 
 # IDE
 .idea/
-.vscode/
 *.swp
 *.swo
+
+# VSCode - include shared configs, exclude local
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
 
 # Testing
 .pytest_cache/
