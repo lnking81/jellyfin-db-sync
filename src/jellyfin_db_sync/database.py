@@ -679,7 +679,7 @@ class Database:
                 ORDER BY created_at DESC
                 LIMIT ?
             """
-            params = (since_time, limit)
+            params: tuple[str, int] | tuple[int,] = (since_time, limit)
         else:
             query = """
                 SELECT id, event_type, source_server, target_server,
@@ -731,6 +731,8 @@ async def close_db() -> None:
     global _db
     if _db:
         await _db.close()
+        _db = None
+        _db = None
         _db = None
         _db = None
         _db = None
