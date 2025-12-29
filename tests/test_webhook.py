@@ -238,5 +238,3 @@ def test_webhook_playback_progress(app_with_engine):
     response = client.post("/webhook/wan", json=payload)
     assert response.status_code == 200
     assert response.json()["status"] == "enqueued"
-    assert response.json()["status"] == "enqueued"
-    assert response.json()["status"] == "enqueued"

@@ -68,4 +68,3 @@ def test_pending_event_creation():
     assert event.event_type == SyncEventType.WATCHED
     assert event.status == PendingEventStatus.PENDING
     assert event.event_data == '{"is_played": true}'
-    assert event.event_data == '{"is_played": true}'

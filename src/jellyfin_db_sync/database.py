@@ -755,19 +755,3 @@ async def close_db() -> None:
     if _db:
         await _db.close()
         _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None
-        _db = None

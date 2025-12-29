@@ -849,19 +849,3 @@ class TestSyncLoopPrevention:
 
         # Key should be removed
         assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
-        # Key should be removed
-        assert key not in engine._sync_cooldowns
