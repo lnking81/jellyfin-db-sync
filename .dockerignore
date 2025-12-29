@@ -1,0 +1,63 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+env
+.eggs
+*.egg-info
+*.egg
+dist
+build
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+coverage.xml
+htmlcov
+.tox
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Project specific
+*.db
+*.db-shm
+*.db-wal
+local.db
+config.yaml
+!config.example.yaml
+
+# Helm charts (not needed in Docker image)
+charts
+
+# Tests
+tests
+pytest.ini
+tox.ini
+
+# Documentation
+*.md
+!README.md
+LICENSE
+docs
+
+# CI/CD
+.github
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log
