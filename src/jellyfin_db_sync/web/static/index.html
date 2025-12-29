@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jellyfin DB Sync</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>🔄 Jellyfin DB Sync</h1>
+                <span class="uptime" id="uptime">Loading...</span>
+            </div>
+            <div class="header-controls">
+                <span class="status-badge" id="overall-status">Loading</span>
+                <button class="refresh-btn" onclick="refreshData()">↻ Refresh</button>
+            </div>
+        </header>
+
+        <div class="grid">
+            <!-- Servers Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📺 Jellyfin Servers</h2>
+                </div>
+                <div class="server-list" id="servers-list">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Queue Status Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📋 Sync Queue</h2>
+                </div>
+                <div class="stats-grid" id="queue-stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="pending-count">-</div>
+                        <div class="stat-label">Pending</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="processing-count">-</div>
+                        <div class="stat-label">Processing</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value color-yellow" id="waiting-count">-</div>
+                        <div class="stat-label">Waiting</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="failed-count">-</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="worker-status">-</div>
+                        <div class="stat-label">Worker</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Database Status Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>💾 Database</h2>
+                </div>
+                <div class="stats-grid" id="db-stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="db-status">-</div>
+                        <div class="stat-label">Status</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="user-mappings">-</div>
+                        <div class="stat-label">User Mappings</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="sync-log-count">-</div>
+                        <div class="stat-label">Log Entries</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sync Stats Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📊 Sync Statistics</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value color-green" id="sync-successful">-</div>
+                        <div class="stat-label">Successful</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value color-red" id="sync-failed">-</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="total-synced">-</div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="last-sync">-</div>
+                        <div class="stat-label">Last Sync</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Events Table -->
+            <div class="card full-width">
+                <div class="card-header">
+                    <h2>⏳ Pending Events</h2>
+                </div>
+                <div id="pending-events">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Waiting for Item Events Table -->
+            <div class="card full-width">
+                <div class="card-header">
+                    <h2>🔍 Waiting for Item Import</h2>
+                </div>
+                <div id="waiting-events">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
