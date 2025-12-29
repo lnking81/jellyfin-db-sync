@@ -135,7 +135,7 @@ helm install jellyfin-db-sync jellyfin-db-sync/jellyfin-db-sync \
 ```bash
 # Install directly from release tarball
 helm install jellyfin-db-sync \
-  https://github.com/lnking81/jellyfin-db-sync/releases/download/v0.0.3/jellyfin-db-sync-0.0.3.tgz \
+  https://github.com/lnking81/jellyfin-db-sync/releases/download/v0.0.4/jellyfin-db-sync-0.0.4.tgz \
   -n home-media \
   --create-namespace \
   -f my-values.yaml
