@@ -38,6 +38,31 @@ class Dashboard {
         }
     }
 
+    async fetchUserMappings() {
+        try {
+            const response = await fetch('/api/users');
+            return await response.json();
+        } catch (e) {
+            console.error('Failed to fetch user mappings:', e);
+            return { servers: [], users: [] };
+        }
+    }
+
+    async fetchSyncLog() {
+        try {
+            const filterEl = document.getElementById('log-time-filter');
+            const sinceMinutes = filterEl ? filterEl.value : '30';
+            const url = sinceMinutes
+                ? `/api/sync-log?limit=100&since_minutes=${sinceMinutes}`
+                : '/api/sync-log?limit=100';
+            const response = await fetch(url);
+            return await response.json();
+        } catch (e) {
+            console.error('Failed to fetch sync log:', e);
+            return [];
+        }
+    }
+
     formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
@@ -105,6 +130,38 @@ class Dashboard {
         // Events tables
         this.updatePendingEvents(events);
         this.updateWaitingEvents(waitingEvents);
+    }
+
+    updateSyncLog(logs) {
+        const container = document.getElementById('sync-log');
+        if (logs.length === 0) {
+            container.innerHTML = '<div class="empty-state">No log entries</div>';
+            return;
+        }
+
+        const entries = logs.map(log => {
+            const time = new Date(log.created_at).toLocaleTimeString();
+            const icon = log.success ? '✓' : '✗';
+            const iconClass = log.success ? 'success' : 'error';
+            const messageClass = log.success ? '' : 'error';
+
+            return `
+                <div class="log-entry">
+                    <div class="log-icon ${iconClass}">${icon}</div>
+                    <div class="log-time">${time}</div>
+                    <div class="log-content">
+                        <div class="log-header">
+                            <span class="log-type">${this.escapeHtml(log.event_type)}</span>
+                            <span class="log-flow">${this.escapeHtml(log.source_server)} → ${this.escapeHtml(log.target_server)}</span>
+                            <span class="log-user">@${this.escapeHtml(log.username)}</span>
+                        </div>
+                        <div class="log-message ${messageClass}">${this.escapeHtml(log.message)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = `<div class="log-container">${entries}</div>`;
     }
 
     updateServers(servers) {
@@ -190,6 +247,48 @@ class Dashboard {
         `;
     }
 
+    updateUserMappings(data) {
+        const container = document.getElementById('user-mappings-table');
+        if (!data.users || data.users.length === 0) {
+            container.innerHTML = '<div class="empty-state">No users found</div>';
+            return;
+        }
+
+        const headers = data.servers.map(s => `<th class="user-server-header">${this.escapeHtml(s)}</th>`).join('');
+        const rows = data.users.map(user => {
+            const cells = data.servers.map(server => {
+                const hasMapping = user.servers[server] !== null;
+                const icon = hasMapping ? '✓' : '—';
+                const className = hasMapping ? 'user-present' : 'user-absent';
+                const title = hasMapping ? `ID: ${user.servers[server]}` : 'Not present';
+                return `<td class="${className}" title="${title}">${icon}</td>`;
+            }).join('');
+            return `
+                <tr>
+                    <td class="user-name-cell">
+                        <span class="user-avatar">${user.username.charAt(0).toUpperCase()}</span>
+                        <span class="user-name">${this.escapeHtml(user.username)}</span>
+                    </td>
+                    ${cells}
+                </tr>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        ${headers}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        `;
+    }
+
     updateWaitingEvents(waitingEvents) {
         const container = document.getElementById('waiting-events');
         if (waitingEvents.length === 0) {
@@ -235,13 +334,17 @@ class Dashboard {
         btn.textContent = '↻ Loading...';
 
         try {
-            const [status, events, waitingEvents] = await Promise.all([
+            const [status, events, waitingEvents, syncLog, userMappings] = await Promise.all([
                 this.fetchStatus(),
                 this.fetchPendingEvents(),
-                this.fetchWaitingEvents()
+                this.fetchWaitingEvents(),
+                this.fetchSyncLog(),
+                this.fetchUserMappings()
             ]);
 
             this.updateUI(status, events, waitingEvents);
+            this.updateSyncLog(syncLog);
+            this.updateUserMappings(userMappings);
         } finally {
             btn.disabled = false;
             btn.textContent = '↻ Refresh';

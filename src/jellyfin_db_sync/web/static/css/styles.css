@@ -279,6 +279,186 @@ h1 {
   color: var(--accent-yellow);
 }
 
+/* Log controls */
+.log-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.log-controls select {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.log-controls select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Log entries */
+.log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.log-entry:hover {
+  background: var(--bg-card);
+}
+
+.log-entry:last-child {
+  border-bottom: none;
+}
+
+.log-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+}
+
+.log-icon.success {
+  color: var(--accent-green);
+}
+
+.log-icon.error {
+  color: var(--accent-red);
+}
+
+.log-time {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-family: monospace;
+  font-size: 0.7rem;
+  min-width: 70px;
+}
+
+.log-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.log-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.log-type {
+  background: var(--bg-card);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
+
+.log-flow {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.log-user {
+  color: var(--accent);
+  font-size: 0.7rem;
+}
+
+.log-message {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  margin-top: 0.25rem;
+  word-break: break-word;
+}
+
+.log-message.error {
+  color: var(--accent-red);
+}
+
+.log-container {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Users table */
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.users-table th,
+.users-table td {
+  padding: 0.625rem 0.75rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.users-table th {
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.users-table th:first-child,
+.users-table td:first-child {
+  text-align: left;
+}
+
+.users-table tr:hover {
+  background: var(--bg-card);
+}
+
+.user-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #9333ea);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.user-name {
+  font-weight: 500;
+}
+
+.user-present {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.user-absent {
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.user-server-header {
+  min-width: 60px;
+}
+
 @media (max-width: 900px) {
   .grid {
     grid-template-columns: 1fr;

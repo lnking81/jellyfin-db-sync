@@ -80,6 +80,26 @@
                 </div>
             </div>
 
+            <!-- User Mappings Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>👥 Users</h2>
+                </div>
+                <div id="user-mappings-table">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Waiting for Item Events Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>🔍 Waiting for Item Import</h2>
+                </div>
+                <div id="waiting-events">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+
             <!-- Sync Stats Card -->
             <div class="card">
                 <div class="card-header">
@@ -115,12 +135,21 @@
                 </div>
             </div>
 
-            <!-- Waiting for Item Events Table -->
+            <!-- Sync Log -->
             <div class="card full-width">
                 <div class="card-header">
-                    <h2>🔍 Waiting for Item Import</h2>
+                    <h2>📜 Sync Log</h2>
+                    <div class="log-controls">
+                        <select id="log-time-filter" onchange="refreshData()">
+                            <option value="30">Last 30 min</option>
+                            <option value="60">Last 1 hour</option>
+                            <option value="180">Last 3 hours</option>
+                            <option value="1440">Last 24 hours</option>
+                            <option value="">All time</option>
+                        </select>
+                    </div>
                 </div>
-                <div id="waiting-events">
+                <div id="sync-log">
                     <div class="empty-state">Loading...</div>
                 </div>
             </div>

@@ -271,9 +271,45 @@ async def retry_event(event_id: int) -> dict[str, Any]:
 
 
 @router.get("/sync-log")
-async def get_sync_log(limit: int = 100) -> list[dict[str, Any]]:
-    """Get recent sync log entries."""
+async def get_sync_log(limit: int = 100, since_minutes: int | None = None) -> list[dict[str, Any]]:
+    """Get recent sync log entries.
+
+    Args:
+        limit: Maximum number of entries to return
+        since_minutes: Only return entries from the last N minutes (default: all)
+    """
     db = await get_db()
-    entries = await db.get_recent_sync_log(limit=limit)
+    entries = await db.get_recent_sync_log(limit=limit, since_minutes=since_minutes)
 
     return entries
+
+
+@router.get("/users")
+async def get_user_mappings(request: Request) -> dict[str, Any]:
+    """Get user mappings grouped by username with server presence."""
+    config = get_config()
+    db = await get_db()
+
+    # Get all servers
+    server_names = [s.name for s in config.servers]
+
+    # Get all user mappings
+    mappings = await db.get_all_user_mappings()
+
+    # Group by username
+    users: dict[str, dict[str, str | None]] = {}
+    for m in mappings:
+        if m.username not in users:
+            users[m.username] = {s: None for s in server_names}
+        users[m.username][m.server_name] = m.jellyfin_user_id
+
+    return {
+        "servers": server_names,
+        "users": [
+            {
+                "username": username,
+                "servers": servers,
+            }
+            for username, servers in sorted(users.items())
+        ],
+    }
