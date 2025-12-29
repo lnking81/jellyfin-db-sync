@@ -14,7 +14,7 @@ from .api import health_router, status_router, webhook_router
 from .config import get_config, load_config
 from .database import close_db, get_db
 from .sync import SyncEngine
-from .web import ui_router
+from .web import get_static_files, ui_router
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -24,6 +24,35 @@ def setup_logging(level: str = "INFO") -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+
+
+def init_config() -> None:
+    """Initialize configuration from file.
+
+    Loads config from CONFIG_PATH env var, /config/config.yaml, or ./config.yaml.
+    Sets up logging based on config.
+    """
+    config_path = os.environ.get("CONFIG_PATH", "/config/config.yaml")
+
+    # Allow local development with config.yaml in current directory
+    if not Path(config_path).exists():
+        local_config = Path("config.yaml")
+        if local_config.exists():
+            config_path = str(local_config)
+        else:
+            print(f"Error: Configuration file not found: {config_path}")
+            print("Create a config.yaml file or set CONFIG_PATH environment variable")
+            sys.exit(1)
+
+    # Load configuration
+    config = load_config(config_path)
+
+    # Setup logging
+    setup_logging(config.logging.level)
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Loaded configuration from {config_path}")
+    logger.info(f"Configured servers: {[s.name for s in config.servers]}")
 
 
 @asynccontextmanager
@@ -72,12 +101,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    # Initialize config before creating app
+    init_config()
+
     app = FastAPI(
         title="jellyfin-db-sync",
         description="Bidirectional sync service for multiple Jellyfin instances",
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # Mount static files
+    app.mount("/static", get_static_files(), name="static")
 
     # Include routers
     app.include_router(ui_router)  # Dashboard at /
@@ -90,31 +125,8 @@ def create_app() -> FastAPI:
 
 def main() -> None:
     """Main entry point."""
-    # Get config path from environment or default
-    config_path = os.environ.get("CONFIG_PATH", "/config/config.yaml")
-
-    # Allow local development with config.yaml in current directory
-    if not Path(config_path).exists():
-        local_config = Path("config.yaml")
-        if local_config.exists():
-            config_path = str(local_config)
-        else:
-            print(f"Error: Configuration file not found: {config_path}")
-            print("Create a config.yaml file or set CONFIG_PATH environment variable")
-            sys.exit(1)
-
-    # Load configuration
-    config = load_config(config_path)
-
-    # Setup logging
-    setup_logging(config.logging.level)
-
-    logger = logging.getLogger(__name__)
-    logger.info(f"Loaded configuration from {config_path}")
-    logger.info(f"Configured servers: {[s.name for s in config.servers]}")
-
-    # Create and run app
     app = create_app()
+    config = get_config()
 
     uvicorn.run(
         app,
