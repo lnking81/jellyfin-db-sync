@@ -25,6 +25,21 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
+      - name: Create gh-pages branch if not exists
+        run: |
+          if ! git ls-remote --exit-code --heads origin gh-pages; then
+            echo "Creating gh-pages branch..."
+            git checkout --orphan gh-pages
+            git rm -rf .
+            echo "# Helm Chart Repository" > README.md
+            echo "" >> README.md
+            echo "This branch contains the Helm chart repository index." >> README.md
+            git add README.md
+            git commit -m "Initialize gh-pages branch"
+            git push origin gh-pages
+            git checkout -
+          fi
+
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
