@@ -151,6 +151,9 @@ class TestItemLookup:
     @pytest.mark.asyncio
     async def test_find_item_by_path(self, client, mock_db):
         """Test finding item by file path."""
+        # Set admin user ID to avoid get_admin_user_id() call during test
+        client._admin_user_id = "admin-user-123"
+
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "Items": [{"Id": "item-123", "Name": "Test Movie", "Path": "/movies/test.mkv"}],
@@ -171,6 +174,8 @@ class TestItemLookup:
     @pytest.mark.asyncio
     async def test_find_item_by_path_cache_hit(self, client, mock_db):
         """Test finding item by path when cached."""
+        # Set admin user ID to avoid get_admin_user_id() call during test
+        client._admin_user_id = "admin-user-123"
         mock_db.get_cached_item_id.return_value = "cached-item-123"
 
         mock_response = MagicMock()
@@ -194,6 +199,9 @@ class TestItemLookup:
     @pytest.mark.asyncio
     async def test_find_item_by_path_not_found(self, client, mock_db):
         """Test item not found by path."""
+        # Set admin user ID to avoid get_admin_user_id() call during test
+        client._admin_user_id = "admin-user-123"
+
         mock_response = MagicMock()
         mock_response.json.return_value = {"Items": [], "TotalRecordCount": 0}
         mock_response.raise_for_status = MagicMock()
@@ -208,6 +216,9 @@ class TestItemLookup:
     @pytest.mark.asyncio
     async def test_find_item_by_path_http_error(self, client, mock_db):
         """Test handling HTTP error when searching by path."""
+        # Set admin user ID to avoid get_admin_user_id() call during test
+        client._admin_user_id = "admin-user-123"
+
         with patch.object(client, "_request", new_callable=AsyncMock) as mock_request:
             mock_request.side_effect = httpx.HTTPStatusError(
                 "Not Found",
@@ -222,6 +233,9 @@ class TestItemLookup:
     @pytest.mark.asyncio
     async def test_find_item_by_provider_id_imdb(self, client):
         """Test finding item by IMDB ID."""
+        # Set admin user ID to avoid get_admin_user_id() call during test
+        client._admin_user_id = "admin-user-123"
+
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "Items": [{"Id": "item-123", "Name": "Inception"}],
@@ -241,6 +255,9 @@ class TestItemLookup:
     @pytest.mark.asyncio
     async def test_find_item_by_provider_id_fallback(self, client):
         """Test fallback through provider IDs."""
+        # Set admin user ID to avoid get_admin_user_id() call during test
+        client._admin_user_id = "admin-user-123"
+
         mock_response_empty = MagicMock()
         mock_response_empty.json.return_value = {"Items": []}
         mock_response_empty.raise_for_status = MagicMock()
