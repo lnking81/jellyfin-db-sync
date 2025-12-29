@@ -250,7 +250,7 @@ class Database:
         """Get pending events ready for processing."""
         assert self._db is not None
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         events = []
 
         async with self._db.execute(
@@ -339,7 +339,7 @@ class Database:
             else:
                 # Schedule retry with exponential backoff
                 backoff_seconds = min(300, 10 * (2**retry_count))  # Max 5 minutes
-                next_retry = datetime.utcnow() + timedelta(seconds=backoff_seconds)
+                next_retry = datetime.now(UTC) + timedelta(seconds=backoff_seconds)
 
                 await self._db.execute(
                     """
@@ -370,7 +370,7 @@ class Database:
         """Reset events stuck in processing state."""
         assert self._db is not None
 
-        stale_time = (datetime.utcnow() - timedelta(minutes=stale_minutes)).isoformat()
+        stale_time = (datetime.now(UTC) - timedelta(minutes=stale_minutes)).isoformat()
 
         cursor = await self._db.execute(
             """
@@ -634,4 +634,5 @@ async def close_db() -> None:
     global _db
     if _db:
         await _db.close()
+        _db = None
         _db = None

@@ -1,6 +1,6 @@
 """Data models for jellyfin-db-sync."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -34,8 +34,8 @@ class UserMapping(BaseModel):
     username: str
     server_name: str
     jellyfin_user_id: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class WebhookPayload(BaseModel):
@@ -70,8 +70,7 @@ class WebhookPayload(BaseModel):
     provider_tmdb: str | None = Field(alias="Provider_tmdb", default=None)
     provider_tvdb: str | None = Field(alias="Provider_tvdb", default=None)
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 class SyncEvent(BaseModel):
@@ -97,7 +96,7 @@ class SyncEvent(BaseModel):
     is_favorite: bool | None = None
     rating: float | None = None
 
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SyncResult(BaseModel):
@@ -107,7 +106,7 @@ class SyncResult(BaseModel):
     target_server: str
     event_type: SyncEventType
     message: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class PendingEventStatus(str, Enum):
@@ -154,6 +153,6 @@ class PendingEvent(BaseModel):
     item_not_found_count: int = 0  # How many times item was not found
     item_not_found_max: int = 0  # Max retries from policy (-1 = infinite)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     next_retry_at: datetime | None = None
