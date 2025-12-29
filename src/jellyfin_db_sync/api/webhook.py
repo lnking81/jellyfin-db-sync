@@ -60,7 +60,7 @@ async def sync_user_creation(source_server: str, username: str, user_id: str) ->
         # Check if user already exists
         existing = await client.get_user_by_name(username)
         if existing:
-            logger.info(f"User '{username}' already exists on {server.name}")
+            logger.debug("User '%s' already exists on %s", username, server.name)
             # Update mapping anyway
             await db.upsert_user_mapping(
                 username=username.lower(),
@@ -114,7 +114,7 @@ async def sync_user_deletion(source_server: str, username: str) -> dict[str, Any
         # Find user
         user = await client.get_user_by_name(username)
         if not user:
-            logger.info(f"User '{username}' not found on {server.name}")
+            logger.debug("User '%s' not found on %s", username, server.name)
             results["not_found"].append(server.name)
             # Still remove mapping if exists
             await db.delete_user_mapping(username=username.lower(), server_name=server.name)
@@ -151,13 +151,13 @@ async def receive_webhook(
     # Validate server name
     server = config.get_server(server_name)
     if not server:
-        logger.warning(f"Received webhook for unknown server: {server_name}")
+        logger.warning("Received webhook for unknown server: %s", server_name)
         raise HTTPException(status_code=404, detail=f"Unknown server: {server_name}")
 
     # Parse the webhook payload
     try:
         body = await request.json()
-        logger.debug(f"Received webhook from {server_name}: {body}")
+        logger.debug("[RAW WEBHOOK] %s: %s", server_name, body)
         payload = WebhookPayload.model_validate(body)
     except Exception as e:
         logger.error("Failed to parse webhook payload: %s", e)
@@ -166,7 +166,7 @@ async def receive_webhook(
     # Handle user lifecycle events (sync to all servers)
     if payload.event == "UserCreated":
         if payload.username and payload.user_id:
-            logger.info(f"User created on {server_name}: {payload.username} — syncing to other servers")
+            logger.info("User created on %s: %s - syncing to other servers", server_name, payload.username)
             results = await sync_user_creation(server_name, payload.username, payload.user_id)
             return {
                 "status": "user_synced",
@@ -178,7 +178,7 @@ async def receive_webhook(
 
     if payload.event == "UserDeleted":
         if payload.username:
-            logger.info(f"User deleted on {server_name}: {payload.username} — deleting from all servers")
+            logger.info("User deleted on %s: %s - deleting from all servers", server_name, payload.username)
             results = await sync_user_deletion(server_name, payload.username)
             return {
                 "status": "user_deleted_all",
@@ -190,8 +190,25 @@ async def receive_webhook(
 
     # Skip if no username (can't sync without knowing the user)
     if not payload.username:
-        logger.debug(f"Skipping webhook without username: {payload.event}")
+        logger.debug("Skipping webhook without username: %s", payload.event)
         return {"status": "skipped", "reason": "no username"}
+
+    # If Path is missing, fetch it from Jellyfin API
+    # The webhook plugin doesn't include Path, but we need it for reliable item matching
+    if not payload.item_path and payload.item_id and payload.user_id:
+        client = JellyfinClient(server)
+        item_info = await client.get_item_info(payload.user_id, payload.item_id)
+        if item_info:
+            payload.item_path = item_info.get("Path")
+            # Also fill in provider IDs if missing
+            provider_ids = item_info.get("ProviderIds", {})
+            if not payload.provider_imdb:
+                payload.provider_imdb = provider_ids.get("Imdb")
+            if not payload.provider_tmdb:
+                payload.provider_tmdb = provider_ids.get("Tmdb")
+            if not payload.provider_tvdb:
+                payload.provider_tvdb = provider_ids.get("Tvdb")
+            logger.debug("[API ENRICHED] path=%s, imdb=%s", payload.item_path, payload.provider_imdb)
 
     # Enqueue events for async processing (WAL pattern)
     engine = get_engine(request)

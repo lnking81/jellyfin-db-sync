@@ -27,6 +27,11 @@ class SyncEventType(str, Enum):
     FAVORITE = "favorite"
     RATING = "rating"
     PLAYLIST = "playlist"
+    LIKES = "likes"  # Thumbs up/down
+    PLAY_COUNT = "play_count"
+    LAST_PLAYED = "last_played"
+    AUDIO_STREAM = "audio_stream"  # Selected audio track
+    SUBTITLE_STREAM = "subtitle_stream"  # Selected subtitle track
 
 
 class UserMapping(BaseModel):
@@ -63,9 +68,14 @@ class WebhookPayload(BaseModel):
     playback_position: str | None = Field(alias="PlaybackPosition", default=None)
     played_to_completion: bool = Field(alias="PlayedToCompletion", default=False)
 
-    # User data
-    is_favorite: bool = Field(alias="IsFavorite", default=False)
+    # User data (Note: webhook sends "Favorite" not "IsFavorite")
+    is_favorite: bool = Field(alias="Favorite", default=False)
     is_played: bool = Field(alias="Played", default=False)
+    likes: bool | None = Field(alias="Likes", default=None)  # Thumbs up/down
+    play_count: int = Field(alias="PlayCount", default=0)
+    last_played_date: str | None = Field(alias="LastPlayedDate", default=None)
+    audio_stream_index: int | None = Field(alias="AudioStreamIndex", default=None)
+    subtitle_stream_index: int | None = Field(alias="SubtitleStreamIndex", default=None)
 
     # Provider IDs (for matching items across servers)
     provider_imdb: str | None = Field(alias="Provider_imdb", default=None)

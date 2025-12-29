@@ -24,6 +24,10 @@ def setup_logging(level: str = "INFO") -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+    # Silence noisy third-party loggers
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def init_config() -> None:
@@ -51,8 +55,8 @@ def init_config() -> None:
     setup_logging(config.logging.level)
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Loaded configuration from {config_path}")
-    logger.info(f"Configured servers: {[s.name for s in config.servers]}")
+    logger.info("Loaded configuration from %s", config_path)
+    logger.info("Configured servers: %s", [s.name for s in config.servers])
 
 
 @asynccontextmanager
@@ -75,18 +79,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await engine.sync_all_users()
         logger.info("User mappings synchronized")
     except Exception as e:
-        logger.warning(f"Failed to sync users on startup: {e}")
+        logger.warning("Failed to sync users on startup: %s", e)
 
     # Health check all servers
     health = await engine.health_check_all()
     for server_name, is_healthy in health.items():
-        status = "✓ healthy" if is_healthy else "✗ unhealthy"
-        logger.info(f"Server {server_name}: {status}")
+        status = "healthy" if is_healthy else "unhealthy"
+        logger.info("Server %s: %s", server_name, status)
 
     # Start the background worker for processing pending events
     worker_interval = config.sync.worker_interval_seconds
     await engine.start_worker(interval_seconds=worker_interval)
-    logger.info(f"Sync worker started (interval: {worker_interval}s)")
+    logger.info("Sync worker started (interval: %ss)", worker_interval)
 
     # Store engine in app state for access by routers
     app.state.engine = engine

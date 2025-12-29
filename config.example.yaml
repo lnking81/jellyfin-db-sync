@@ -20,6 +20,11 @@ sync:
   favorites: true # Favorite items
   ratings: true # User ratings
   playlists: true # User playlists
+  likes: true # Likes/dislikes
+  play_count: true # Play count (syncs to higher value)
+  last_played_date: true # Last played date (syncs to newer date)
+  audio_stream: true # Preferred audio stream index
+  subtitle_stream: true # Preferred subtitle stream index
 
   # Debounce settings (avoid syncing too frequently during playback)
   progress_debounce_seconds: 30 # Min interval between progress syncs
@@ -27,6 +32,11 @@ sync:
   # Worker settings
   worker_interval_seconds: 5.0 # How often worker checks for pending events
   max_retries: 5 # Max retries for failed sync operations
+
+  # Dry run mode: prevents API calls to target servers
+  # Webhooks are still received and events enqueued, but no sync actions executed
+  # Use logging.level: DEBUG to see detailed webhook/sync logs
+  dry_run: false
 
 # Path sync policy - controls retry behavior for items not found on target
 # Useful when libraries are still being imported on some servers

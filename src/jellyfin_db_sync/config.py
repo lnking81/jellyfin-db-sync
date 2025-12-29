@@ -23,9 +23,15 @@ class SyncConfig(BaseModel):
     favorites: bool = True
     ratings: bool = True
     playlists: bool = True
+    likes: bool = True  # Thumbs up/down
+    play_count: bool = True  # Number of times played
+    last_played_date: bool = True  # Last played timestamp
+    audio_stream: bool = True  # Selected audio track
+    subtitle_stream: bool = True  # Selected subtitle track
     progress_debounce_seconds: int = 30
     worker_interval_seconds: float = 5.0
     max_retries: int = 5
+    dry_run: bool = False  # Prevent API calls to target servers (webhooks still enqueued)
 
 
 class DatabaseConfig(BaseModel):

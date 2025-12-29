@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -120,7 +121,7 @@ class SyncEngine:
             del self._sync_cooldowns[key]
             return False
 
-        logger.debug(f"Event in cooldown (ignoring sync loop): {key}")
+        logger.debug("Event in cooldown (ignoring sync loop): %s", key)
         return True
 
     def _set_cooldown(
@@ -144,12 +145,12 @@ class SyncEngine:
         item_key = self._get_item_identity_key(item_path, provider_imdb, provider_tmdb, provider_tvdb)
         if not item_key:
             # No consistent identifier - can't track cooldown
-            logger.warning(f"Cannot set cooldown: no item_path or provider IDs for {server}")
+            logger.warning("Cannot set cooldown: no item_path or provider IDs for %s", server)
             return
 
         key = f"{server}:{username}:{item_key}:{event_type.value}"
         self._sync_cooldowns[key] = datetime.now(UTC) + timedelta(seconds=SYNC_COOLDOWN_SECONDS)
-        logger.debug(f"Set cooldown for: {key}")
+        logger.debug("Set cooldown for: %s", key)
 
     def _cleanup_expired_cooldowns(self) -> None:
         """Remove expired cooldown entries."""
@@ -172,6 +173,21 @@ class SyncEngine:
         """
         db = await get_db()
 
+        # Log all incoming webhooks in detail (DEBUG level)
+        logger.debug(
+            "[WEBHOOK] server=%s, event=%s, user=%s, item=%s, path=%s, played=%s, "
+            "favorite=%s, position=%s, imdb=%s",
+            source_server_name,
+            payload.event,
+            payload.username,
+            payload.item_name,
+            payload.item_path,
+            payload.is_played,
+            payload.is_favorite,
+            payload.playback_position_ticks,
+            payload.provider_imdb,
+        )
+
         # Periodic cleanup of expired cooldowns
         self._cleanup_expired_cooldowns()
 
@@ -187,6 +203,7 @@ class SyncEngine:
 
         # Filter out events that are in cooldown (prevent sync loops)
         # If we recently synced this item TO source_server, ignore webhooks FROM source_server
+        events_before_filter = len(events_data)
         events_data = [
             e
             for e in events_data
@@ -201,8 +218,18 @@ class SyncEngine:
             )
         ]
 
+        # Log filtered events
+        if events_before_filter > len(events_data):
+            filtered = events_before_filter - len(events_data)
+            logger.debug(
+                "[COOLDOWN] Filtered %d events from %s for %s (prevented sync loop)",
+                filtered,
+                source_server_name,
+                payload.item_name,
+            )
+
         if not events_data:
-            logger.debug(f"No sync events generated from webhook: {payload.event}")
+            logger.debug("No sync events generated from webhook: %s", payload.event)
             return 0
 
         # Get target servers
@@ -220,8 +247,10 @@ class SyncEngine:
                     item_id=payload.item_id,
                 ):
                     logger.debug(
-                        f"Skipping duplicate event: {event_data['event_type'].value} "
-                        f"for {payload.item_name} → {target_server.name}"
+                        "Skipping duplicate event: %s for %s -> %s",
+                        event_data["event_type"].value,
+                        payload.item_name,
+                        target_server.name,
                     )
                     continue
 
@@ -241,9 +270,13 @@ class SyncEngine:
                 )
                 enqueued += 1
 
-        logger.info(
-            f"Enqueued {enqueued} events from {source_server_name}: "
-            f"event={payload.event}, user={payload.username}, item={payload.item_name}"
+        logger.debug(
+            "Enqueued %d events from %s: event=%s, user=%s, item=%s",
+            enqueued,
+            source_server_name,
+            payload.event,
+            payload.username,
+            payload.item_name,
         )
 
         return enqueued
@@ -282,8 +315,9 @@ class SyncEngine:
                     self._update_progress_timestamp(debounce_key)
 
         elif payload.event == "UserDataSaved":
-            # Handle various user data changes
-            # Only sync if we have a definitive value (not None)
+            # Handle user data changes (watched status, favorites, etc.)
+            # Smart sync: actual value check happens in _execute_sync()
+            # to only sync when target state differs from source
             if self.config.sync.watched_status and payload.is_played is not None:
                 events.append(
                     {
@@ -291,6 +325,7 @@ class SyncEngine:
                         "data": {"is_played": payload.is_played},
                     }
                 )
+                logger.debug("[PARSE] Generated WATCHED event: is_played=%s", payload.is_played)
 
             if self.config.sync.favorites and payload.is_favorite is not None:
                 events.append(
@@ -299,6 +334,52 @@ class SyncEngine:
                         "data": {"is_favorite": payload.is_favorite},
                     }
                 )
+                logger.debug("[PARSE] Generated FAVORITE event: is_favorite=%s", payload.is_favorite)
+
+            if self.config.sync.likes and payload.likes is not None:
+                events.append(
+                    {
+                        "event_type": SyncEventType.LIKES,
+                        "data": {"likes": payload.likes},
+                    }
+                )
+                logger.debug("[PARSE] Generated LIKES event: likes=%s", payload.likes)
+
+            if self.config.sync.play_count and payload.play_count is not None:
+                events.append(
+                    {
+                        "event_type": SyncEventType.PLAY_COUNT,
+                        "data": {"play_count": payload.play_count},
+                    }
+                )
+                logger.debug("[PARSE] Generated PLAY_COUNT event: play_count=%s", payload.play_count)
+
+            if self.config.sync.last_played_date and payload.last_played_date:
+                events.append(
+                    {
+                        "event_type": SyncEventType.LAST_PLAYED,
+                        "data": {"last_played_date": payload.last_played_date},
+                    }
+                )
+                logger.debug("[PARSE] Generated LAST_PLAYED event: date=%s", payload.last_played_date)
+
+            if self.config.sync.audio_stream and payload.audio_stream_index is not None:
+                events.append(
+                    {
+                        "event_type": SyncEventType.AUDIO_STREAM,
+                        "data": {"audio_stream_index": payload.audio_stream_index},
+                    }
+                )
+                logger.debug("[PARSE] Generated AUDIO_STREAM event: index=%s", payload.audio_stream_index)
+
+            if self.config.sync.subtitle_stream and payload.subtitle_stream_index is not None:
+                events.append(
+                    {
+                        "event_type": SyncEventType.SUBTITLE_STREAM,
+                        "data": {"subtitle_stream_index": payload.subtitle_stream_index},
+                    }
+                )
+                logger.debug("[PARSE] Generated SUBTITLE_STREAM event: index=%s", payload.subtitle_stream_index)
 
         return events
 
@@ -332,7 +413,7 @@ class SyncEngine:
                 # Reset any stale processing events (crashed during processing)
                 reset_count = await db.reset_stale_processing()
                 if reset_count > 0:
-                    logger.warning(f"Reset {reset_count} stale processing events")
+                    logger.warning("Reset %d stale processing events", reset_count)
 
                 # Process pending events
                 processed = await self.process_pending_events()
@@ -341,10 +422,10 @@ class SyncEngine:
                 waiting_processed = await self.process_waiting_for_item_events()
 
                 if processed > 0 or waiting_processed > 0:
-                    logger.debug(f"Processed {processed} pending, {waiting_processed} waiting events")
+                    logger.debug("Processed %d pending, %d waiting events", processed, waiting_processed)
 
             except Exception as e:
-                logger.exception(f"Error in worker loop: {e}")
+                logger.exception("Error in worker loop: %s", e)
 
             await asyncio.sleep(interval_seconds)
 
@@ -502,7 +583,7 @@ class SyncEngine:
             )
 
         except Exception as e:
-            logger.exception(f"Error syncing to {target_server.name}")
+            logger.exception("Error syncing to %s", target_server.name)
             return SyncResult(
                 success=False,
                 target_server=target_server.name,
@@ -518,38 +599,195 @@ class SyncEngine:
         event_type: SyncEventType,
         event_data: dict[str, Any],
     ) -> bool:
-        """Execute the actual sync operation on target server."""
+        """Execute the actual sync operation on target server.
+
+        Smart sync: checks current state on target before syncing.
+        If target already has the same value, skip the sync.
+        This prevents unnecessary API calls and sync loops.
+        """
+        # Get current user data for smart sync comparison
+        current_user_data: dict[str, Any] | None = None
+        needs_smart_check = event_type in (
+            SyncEventType.WATCHED,
+            SyncEventType.FAVORITE,
+            SyncEventType.LIKES,
+            SyncEventType.PLAY_COUNT,
+            SyncEventType.LAST_PLAYED,
+            SyncEventType.AUDIO_STREAM,
+            SyncEventType.SUBTITLE_STREAM,
+            SyncEventType.PROGRESS,
+            SyncEventType.RATING,
+        )
+
+        if needs_smart_check:
+            current_user_data = await client.get_user_data(user_id, item_id)
+
+        # Smart sync checks - skip if target already has same value
+        if current_user_data:
+            match event_type:
+                case SyncEventType.WATCHED:
+                    current = current_user_data.get("Played", False)
+                    desired = event_data.get("is_played")
+                    if current == desired:
+                        logger.debug("[SMART SYNC] Skipping WATCHED: target has Played=%s", current)
+                        return True
+
+                case SyncEventType.FAVORITE:
+                    current = current_user_data.get("IsFavorite", False)
+                    desired = event_data.get("is_favorite")
+                    if current == desired:
+                        logger.debug("[SMART SYNC] Skipping FAVORITE: target has IsFavorite=%s", current)
+                        return True
+
+                case SyncEventType.LIKES:
+                    current = current_user_data.get("Likes")
+                    desired = event_data.get("likes")
+                    if current == desired:
+                        logger.debug("[SMART SYNC] Skipping LIKES: target has Likes=%s", current)
+                        return True
+
+                case SyncEventType.PLAY_COUNT:
+                    current = current_user_data.get("PlayCount", 0)
+                    desired = event_data.get("play_count", 0)
+                    # Only sync if source has higher play count
+                    if current >= desired:
+                        logger.debug("[SMART SYNC] Skipping PLAY_COUNT: target=%d >= source=%d", current, desired)
+                        return True
+
+                case SyncEventType.LAST_PLAYED:
+                    current = current_user_data.get("LastPlayedDate")
+                    desired = event_data.get("last_played_date")
+                    # Only sync if source date is newer (simple string comparison works for ISO format)
+                    if current and desired and current >= desired:
+                        logger.debug("[SMART SYNC] Skipping LAST_PLAYED: target is newer")
+                        return True
+
+                case SyncEventType.AUDIO_STREAM:
+                    current = current_user_data.get("AudioStreamIndex")
+                    desired = event_data.get("audio_stream_index")
+                    if current == desired:
+                        logger.debug("[SMART SYNC] Skipping AUDIO_STREAM: target has index=%s", current)
+                        return True
+
+                case SyncEventType.SUBTITLE_STREAM:
+                    current = current_user_data.get("SubtitleStreamIndex")
+                    desired = event_data.get("subtitle_stream_index")
+                    if current == desired:
+                        logger.debug("[SMART SYNC] Skipping SUBTITLE_STREAM: target has index=%s", current)
+                        return True
+
+                case SyncEventType.PROGRESS:
+                    current = current_user_data.get("PlaybackPositionTicks", 0)
+                    desired = event_data.get("position_ticks", 0)
+                    # Only sync if source position is ahead of target
+                    if current >= desired:
+                        logger.debug(
+                            "[SMART SYNC] Skipping PROGRESS: target=%d >= source=%d",
+                            current,
+                            desired,
+                        )
+                        return True
+
+                case SyncEventType.RATING:
+                    current = current_user_data.get("Rating")
+                    desired = event_data.get("rating")
+                    if current == desired:
+                        logger.debug("[SMART SYNC] Skipping RATING: target has Rating=%s", current)
+                        return True
+
+                case _:
+                    pass
+
+        # Determine which API call to make
+        func: Callable[..., Awaitable[bool]] | None = None
+        func_name: str = ""
+        args: tuple[Any, ...] = ()
+        kwargs: dict[str, Any] = {}
+
         match event_type:
             case SyncEventType.PROGRESS:
                 position_ticks = event_data.get("position_ticks")
                 if position_ticks is not None:
-                    return await client.update_playback_progress(user_id, item_id, int(position_ticks))
+                    func = client.update_playback_progress
+                    func_name = "update_playback_progress"
+                    args = (user_id, item_id, int(position_ticks))
 
             case SyncEventType.WATCHED:
                 is_played = event_data.get("is_played")
                 if is_played is not None:
                     if is_played:
-                        return await client.mark_played(user_id, item_id)
+                        func = client.mark_played
+                        func_name = "mark_played"
                     else:
-                        return await client.mark_unplayed(user_id, item_id)
+                        func = client.mark_unplayed
+                        func_name = "mark_unplayed"
+                    args = (user_id, item_id)
 
             case SyncEventType.FAVORITE:
                 is_favorite = event_data.get("is_favorite")
                 if is_favorite is not None:
                     if is_favorite:
-                        return await client.add_favorite(user_id, item_id)
+                        func = client.add_favorite
+                        func_name = "add_favorite"
                     else:
-                        return await client.remove_favorite(user_id, item_id)
+                        func = client.remove_favorite
+                        func_name = "remove_favorite"
+                    args = (user_id, item_id)
 
             case SyncEventType.RATING:
                 rating = event_data.get("rating")
                 if rating is not None:
-                    return await client.update_rating(user_id, item_id, float(rating))
+                    func = client.update_rating
+                    func_name = "update_rating"
+                    args = (user_id, item_id, float(rating))
+
+            case SyncEventType.LIKES:
+                func = client.update_user_data
+                func_name = "update_user_data"
+                args = (user_id, item_id)
+                kwargs = {"likes": event_data.get("likes")}
+
+            case SyncEventType.PLAY_COUNT:
+                func = client.update_user_data
+                func_name = "update_user_data"
+                args = (user_id, item_id)
+                kwargs = {"play_count": event_data.get("play_count")}
+
+            case SyncEventType.LAST_PLAYED:
+                func = client.update_user_data
+                func_name = "update_user_data"
+                args = (user_id, item_id)
+                kwargs = {"last_played_date": event_data.get("last_played_date")}
+
+            case SyncEventType.AUDIO_STREAM:
+                func = client.update_user_data
+                func_name = "update_user_data"
+                args = (user_id, item_id)
+                kwargs = {"audio_stream_index": event_data.get("audio_stream_index")}
+
+            case SyncEventType.SUBTITLE_STREAM:
+                func = client.update_user_data
+                func_name = "update_user_data"
+                args = (user_id, item_id)
+                kwargs = {"subtitle_stream_index": event_data.get("subtitle_stream_index")}
 
             case _:
                 pass
 
-        return False
+        if func is None:
+            return False
+
+        # Format args for logging
+        args_str = ", ".join(repr(a) for a in args)
+        if kwargs:
+            kwargs_str = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
+            args_str = f"{args_str}, {kwargs_str}" if args_str else kwargs_str
+
+        if self.config.sync.dry_run:
+            logger.info("[DRY RUN] %s(%s)", func_name, args_str)
+            return True
+
+        return await func(*args, **kwargs)
 
     async def _handle_item_not_found(
         self,
@@ -599,8 +837,11 @@ class SyncEngine:
         )
 
         logger.info(
-            f"Item not found, will retry: {event.item_name} on {target_server_name} "
-            f"(attempt {current_count}/{max_display})"
+            "Item not found, will retry: %s on %s (attempt %s/%s)",
+            event.item_name,
+            target_server_name,
+            current_count,
+            max_display,
         )
 
         # Return success=True to prevent marking as failed (it's waiting, not failed)
@@ -632,14 +873,14 @@ class SyncEngine:
                             all_users[username] = {}
                         all_users[username][server.name] = user_id
             except Exception as e:
-                logger.error(f"Failed to get users from {server.name}: {e}")
+                logger.error("Failed to get users from %s: %s", server.name, e)
 
         # Save mappings
         for username, servers in all_users.items():
             for server_name, user_id in servers.items():
                 await db.upsert_user_mapping(username, server_name, user_id)
 
-        logger.info(f"Synced {len(all_users)} users across servers")
+        logger.info("Synced %d users across servers", len(all_users))
 
     async def health_check_all(self) -> dict[str, bool]:
         """Check health of all configured servers."""

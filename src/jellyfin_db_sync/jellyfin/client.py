@@ -80,13 +80,13 @@ class JellyfinClient:
                 },
             )
             user = response.json()
-            logger.info(f"Created user '{username}' on {self.server.name}")
+            logger.info("Created user '%s' on %s", username, self.server.name)
             return user
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 400:
-                logger.warning(f"User '{username}' may already exist on {self.server.name}")
+                logger.warning("User '%s' may already exist on %s", username, self.server.name)
             else:
-                logger.error(f"Failed to create user '{username}' on {self.server.name}: {e}")
+                logger.error("Failed to create user '%s' on %s: %s", username, self.server.name, e)
             return None
 
     async def delete_user(self, user_id: str) -> bool:
@@ -104,10 +104,10 @@ class JellyfinClient:
                 "DELETE",
                 f"/Users/{user_id}",
             )
-            logger.info(f"Deleted user {user_id} from {self.server.name}")
+            logger.info("Deleted user %s from %s", user_id, self.server.name)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to delete user {user_id} from {self.server.name}: {e}")
+            logger.error("Failed to delete user %s from %s: %s", user_id, self.server.name, e)
             return False
 
     # ========== Item Lookup ==========
@@ -140,7 +140,7 @@ class JellyfinClient:
             if items:
                 return items[0]
         except httpx.HTTPStatusError as e:
-            logger.debug(f"Item not found by path {path}: {e}")
+            logger.debug("Item not found by path %s: %s", path, e)
         return None
 
     async def find_item_by_provider_id(
@@ -193,10 +193,10 @@ class JellyfinClient:
                 f"/Users/{user_id}/PlayingItems/{item_id}/Progress",
                 params={"positionTicks": position_ticks},
             )
-            logger.info(f"Updated progress on {self.server.name}: item={item_id}, position={position_ticks}")
+            logger.debug("Updated progress on %s: item=%s, position=%s", self.server.name, item_id, position_ticks)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to update progress: {e}")
+            logger.error("Failed to update progress: %s", e)
             return False
 
     # ========== Watched Status ==========
@@ -208,10 +208,10 @@ class JellyfinClient:
                 "POST",
                 f"/Users/{user_id}/PlayedItems/{item_id}",
             )
-            logger.info(f"Marked as played on {self.server.name}: item={item_id}")
+            logger.debug("Marked as played on %s: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to mark as played: {e}")
+            logger.error("Failed to mark as played: %s", e)
             return False
 
     async def mark_unplayed(self, user_id: str, item_id: str) -> bool:
@@ -221,10 +221,10 @@ class JellyfinClient:
                 "DELETE",
                 f"/Users/{user_id}/PlayedItems/{item_id}",
             )
-            logger.info(f"Marked as unplayed on {self.server.name}: item={item_id}")
+            logger.debug("Marked as unplayed on %s: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to mark as unplayed: {e}")
+            logger.error("Failed to mark as unplayed: %s", e)
             return False
 
     # ========== Favorites ==========
@@ -236,10 +236,10 @@ class JellyfinClient:
                 "POST",
                 f"/Users/{user_id}/FavoriteItems/{item_id}",
             )
-            logger.info(f"Added to favorites on {self.server.name}: item={item_id}")
+            logger.debug("Added to favorites on %s: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to add favorite: {e}")
+            logger.error("Failed to add favorite: %s", e)
             return False
 
     async def remove_favorite(self, user_id: str, item_id: str) -> bool:
@@ -249,10 +249,10 @@ class JellyfinClient:
                 "DELETE",
                 f"/Users/{user_id}/FavoriteItems/{item_id}",
             )
-            logger.info(f"Removed from favorites on {self.server.name}: item={item_id}")
+            logger.debug("Removed from favorites on %s: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to remove favorite: {e}")
+            logger.error("Failed to remove favorite: %s", e)
             return False
 
     # ========== Ratings ==========
@@ -270,10 +270,10 @@ class JellyfinClient:
                 f"/Users/{user_id}/Items/{item_id}/Rating",
                 params={"likes": rating >= 5},  # Jellyfin uses likes/dislikes
             )
-            logger.info(f"Updated rating on {self.server.name}: item={item_id}, rating={rating}")
+            logger.debug("Updated rating on %s: item=%s, rating=%s", self.server.name, item_id, rating)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to update rating: {e}")
+            logger.error("Failed to update rating: %s", e)
             return False
 
     async def delete_rating(self, user_id: str, item_id: str) -> bool:
@@ -283,13 +283,69 @@ class JellyfinClient:
                 "DELETE",
                 f"/Users/{user_id}/Items/{item_id}/Rating",
             )
-            logger.info(f"Deleted rating on {self.server.name}: item={item_id}")
+            logger.debug("Deleted rating on %s: item=%s", self.server.name, item_id)
             return True
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to delete rating: {e}")
+            logger.error("Failed to delete rating: %s", e)
+            return False
+
+    # ========== User Data Updates ==========
+
+    async def update_user_data(
+        self,
+        user_id: str,
+        item_id: str,
+        play_count: int | None = None,
+        played: bool | None = None,
+        last_played_date: str | None = None,
+        likes: bool | None = None,
+        audio_stream_index: int | None = None,
+        subtitle_stream_index: int | None = None,
+    ) -> bool:
+        """Update user data for an item (play count, likes, stream indices, etc.)."""
+        try:
+            # Build the update payload - only include non-None values
+            update_data: dict[str, Any] = {}
+            if play_count is not None:
+                update_data["PlayCount"] = play_count
+            if played is not None:
+                update_data["Played"] = played
+            if last_played_date is not None:
+                update_data["LastPlayedDate"] = last_played_date
+            if likes is not None:
+                update_data["Likes"] = likes
+            if audio_stream_index is not None:
+                update_data["AudioStreamIndex"] = audio_stream_index
+            if subtitle_stream_index is not None:
+                update_data["SubtitleStreamIndex"] = subtitle_stream_index
+
+            if not update_data:
+                return True  # Nothing to update
+
+            await self._request(
+                "POST",
+                f"/Users/{user_id}/Items/{item_id}/UserData",
+                json=update_data,
+            )
+            logger.debug("Updated user data on %s: item=%s, data=%s", self.server.name, item_id, update_data)
+            return True
+        except httpx.HTTPStatusError as e:
+            logger.error("Failed to update user data: %s", e)
             return False
 
     # ========== User Data (combined) ==========
+
+    async def get_item_info(self, user_id: str, item_id: str) -> dict[str, Any] | None:
+        """Get full item information including Path, ProviderIds, etc."""
+        try:
+            response = await self._request(
+                "GET",
+                f"/Users/{user_id}/Items/{item_id}",
+            )
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error("Failed to get item info: %s", e)
+            return None
 
     async def get_user_data(self, user_id: str, item_id: str) -> dict[str, Any] | None:
         """Get user data for an item (played status, position, favorites, etc.)."""
@@ -301,7 +357,7 @@ class JellyfinClient:
             data = response.json()
             return data.get("UserData")
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to get user data: {e}")
+            logger.error("Failed to get user data: %s", e)
             return None
 
     # ========== Health Check ==========
@@ -312,5 +368,5 @@ class JellyfinClient:
             await self._request("GET", "/System/Info/Public")
             return True
         except Exception as e:
-            logger.warning(f"Health check failed for {self.server.name}: {e}")
+            logger.warning("Health check failed for %s: %s", self.server.name, e)
             return False

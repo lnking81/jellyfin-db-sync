@@ -80,6 +80,14 @@ src/jellyfin_db_sync/
 
 ## Key Patterns
 
+### PEP guidelines
+
+- Always try to follow PEP guidelines for code style and structure
+- Don't use f-strings in logging calls; use lazy formatting instead:
+  ```python
+  logger.info("Processing item %s for user %s", item_id, user_id)
+  ```
+
 ### Global Singletons with Lazy Init
 
 - Config: `load_config()` sets global, `get_config()` retrieves
