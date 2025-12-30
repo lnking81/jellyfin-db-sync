@@ -6,11 +6,13 @@
 #   ./scripts/release.sh <version>
 #   ./scripts/release.sh 0.0.2
 #   ./scripts/release.sh 1.0.0
+#   ./scripts/release.sh 0.0.8 -m "Fix progress sync to always use last action"
 #
 # Options:
-#   --dry-run    Show what would be done without making changes
-#   --no-push    Create commit and tag but don't push
-#   --help       Show this help message
+#   -m, --message  Custom message for the tag (default: "Release <version>")
+#   --dry-run      Show what would be done without making changes
+#   --no-push      Create commit and tag but don't push
+#   --help         Show this help message
 
 set -euo pipefail
 
@@ -28,6 +30,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Flags
 DRY_RUN=false
 NO_PUSH=false
+TAG_MESSAGE=""
 
 # Files to update with their sed patterns
 declare -A VERSION_FILES=(
@@ -47,17 +50,19 @@ usage() {
     echo "Updates version in all files, commits, creates tag, and pushes"
     echo ""
     echo "Arguments:"
-    echo "  version     New version number (e.g., 0.0.2, 1.0.0)"
+    echo "  version         New version number (e.g., 0.0.2, 1.0.0)"
     echo ""
     echo "Options:"
-    echo "  --dry-run   Show what would be done without making changes"
-    echo "  --no-push   Create commit and tag but don't push"
-    echo "  --help      Show this help message"
+    echo "  -m, --message   Custom message for the tag (default: 'Release <version>')"
+    echo "  --dry-run       Show what would be done without making changes"
+    echo "  --no-push       Create commit and tag but don't push"
+    echo "  --help          Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 0.0.2              # Release version 0.0.2"
-    echo "  $0 --dry-run 1.0.0    # Preview release 1.0.0"
-    echo "  $0 --no-push 0.1.0    # Create release locally only"
+    echo "  $0 0.0.2                           # Release version 0.0.2"
+    echo "  $0 0.0.8 -m 'Fix progress sync'    # Release with custom message"
+    echo "  $0 --dry-run 1.0.0                 # Preview release 1.0.0"
+    echo "  $0 --no-push 0.1.0                 # Create release locally only"
 }
 
 log_info() {
@@ -186,13 +191,14 @@ update_all_versions() {
 create_commit_and_tag() {
     local version=$1
     local tag="v$version"
+    local message="${TAG_MESSAGE:-Release $version}"
 
     cd "$PROJECT_ROOT"
 
     if $DRY_RUN; then
         log_dry "Would stage all version files"
         log_dry "Would commit with message: 'chore: release $version'"
-        log_dry "Would create tag: $tag"
+        log_dry "Would create tag: $tag with message: '$message'"
         return 0
     fi
 
@@ -209,8 +215,8 @@ create_commit_and_tag() {
     log_success "Created commit"
 
     log_info "Creating tag $tag..."
-    git tag -a "$tag" -m "Release $version"
-    log_success "Created tag $tag"
+    git tag -a "$tag" -m "$message"
+    log_success "Created tag $tag with message: '$message'"
 }
 
 push_changes() {
@@ -253,6 +259,14 @@ main() {
             --no-push)
                 NO_PUSH=true
                 shift
+                ;;
+            -m|--message)
+                if [[ -z "${2:-}" ]]; then
+                    log_error "Option $1 requires a message argument"
+                    exit 1
+                fi
+                TAG_MESSAGE="$2"
+                shift 2
                 ;;
             --help|-h)
                 usage
