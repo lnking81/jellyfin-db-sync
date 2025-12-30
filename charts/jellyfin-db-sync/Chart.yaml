@@ -3,8 +3,8 @@ name: jellyfin-db-sync
 description: Bidirectional sync service for multiple Jellyfin instances
 
 type: application
-version: 0.0.6
-appVersion: "0.0.6"
+version: 0.0.7
+appVersion: "0.0.7"
 
 home: https://github.com/lnking81/jellyfin-db-sync
 icon: https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg

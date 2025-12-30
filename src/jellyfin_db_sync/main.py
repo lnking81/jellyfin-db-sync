@@ -111,7 +111,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="jellyfin-db-sync",
         description="Bidirectional sync service for multiple Jellyfin instances",
-        version="0.0.6",
+        version="0.0.7",
         lifespan=lifespan,
     )
 
