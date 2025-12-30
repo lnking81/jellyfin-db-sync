@@ -112,6 +112,33 @@ class Database:
         with contextlib.suppress(Exception):
             await self._db.execute("ALTER TABLE sync_log ADD COLUMN synced_value TEXT")
 
+        # Indexes for sync_log - critical for large log tables
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sync_log_created_at
+            ON sync_log(created_at DESC)
+        """
+        )
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sync_log_filters
+            ON sync_log(source_server, target_server, event_type)
+        """
+        )
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sync_log_item_name
+            ON sync_log(item_name)
+        """
+        )
+        # Index for statistics aggregation
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sync_log_success
+            ON sync_log(success)
+        """
+        )
+
         # Pending events table (WAL for sync operations)
         await self._db.execute(
             """
@@ -149,6 +176,22 @@ class Database:
         """
         )
 
+        # Index for deduplication check (has_pending_event)
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_pending_events_dedup
+            ON pending_events(event_type, target_server, username, item_id, status)
+        """
+        )
+
+        # Index for stale event reset (updated_at filtering)
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_pending_events_updated
+            ON pending_events(status, updated_at)
+        """
+        )
+
         # Item path cache table - maps file path to Jellyfin item ID per server
         await self._db.execute(
             """
@@ -169,6 +212,14 @@ class Database:
             """
             CREATE INDEX IF NOT EXISTS idx_item_path_cache_path
             ON item_path_cache(server_name, item_path)
+        """
+        )
+
+        # Additional index for item_id lookups in cache
+        await self._db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_item_path_cache_item_id
+            ON item_path_cache(server_name, item_id)
         """
         )
 
