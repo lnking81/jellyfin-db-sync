@@ -49,9 +49,9 @@ entries:
           url: https://github.com/lnking81/jellyfin-db-sync
     apiVersion: v2
     appVersion: 0.0.8
-    created: "2025-12-30T01:52:25.771891215Z"
+    created: "2025-12-30T02:12:05.548260751Z"
     description: Bidirectional sync service for multiple Jellyfin instances
-    digest: 2f0a9f9fa1ec546e031be21c9a4324c3fa060630ecb6facc589afa40fe7584fe
+    digest: 0df3c9272438da0e71f09ad2359ede560b1e7cf5cce25bf71bb4401c598f5ef2
     home: https://github.com/lnking81/jellyfin-db-sync
     icon: https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg
     keywords:
@@ -87,7 +87,7 @@ entries:
           url: https://github.com/lnking81/jellyfin-db-sync
     apiVersion: v2
     appVersion: 0.0.7
-    created: "2025-12-30T01:52:25.77114512Z"
+    created: "2025-12-30T02:12:05.547493942Z"
     description: Bidirectional sync service for multiple Jellyfin instances
     digest: 00f52ba30ad45a6e352ff1b8b7578bab897758dfa613f41f72783029f855e541
     home: https://github.com/lnking81/jellyfin-db-sync
@@ -118,7 +118,7 @@ entries:
           url: https://github.com/lnking81/jellyfin-db-sync
     apiVersion: v2
     appVersion: 0.0.6
-    created: "2025-12-30T01:52:25.770363881Z"
+    created: "2025-12-30T02:12:05.546733245Z"
     description: Bidirectional sync service for multiple Jellyfin instances
     digest: b52e6dc9ea85ef6b66fc33fd6020497d07f6ef20903e801aecbfbc2526fced3a
     home: https://github.com/lnking81/jellyfin-db-sync
@@ -294,4 +294,4 @@ entries:
     urls:
     - https://github.com/lnking81/jellyfin-db-sync/releases/download/jellyfin-db-sync-0.0.1/jellyfin-db-sync-0.0.1.tgz
     version: 0.0.1
-generated: "2025-12-30T01:52:25.769435696Z"
+generated: "2025-12-30T02:12:05.545779277Z"
