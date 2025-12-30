@@ -1,12 +1,54 @@
 /**
  * Jellyfin DB Sync Dashboard
+ * Uses HTML <template> elements for clean separation of markup and logic
  */
 
 class Dashboard {
     constructor() {
         this.refreshInterval = 10000;
         this.intervalId = null;
+        this.templates = {};
     }
+
+    /**
+     * Get and cache a template by ID
+     */
+    getTemplate(id) {
+        if (!this.templates[id]) {
+            this.templates[id] = document.getElementById(id);
+        }
+        return this.templates[id];
+    }
+
+    /**
+     * Clone a template and return the first element child
+     */
+    cloneTemplate(id) {
+        const template = this.getTemplate(id);
+        return template.content.cloneNode(true).firstElementChild;
+    }
+
+    /**
+     * Set text content of element with data-field attribute
+     */
+    setField(parent, field, value) {
+        const el = parent.querySelector(`[data-field="${field}"]`);
+        if (el) el.textContent = value ?? '';
+        return el;
+    }
+
+    /**
+     * Clear container and show empty state message
+     */
+    showEmpty(container, message) {
+        container.innerHTML = '';
+        const div = document.createElement('div');
+        div.className = 'empty-state';
+        div.textContent = message;
+        container.appendChild(div);
+    }
+
+    // === API Fetchers ===
 
     async fetchStatus() {
         try {
@@ -50,29 +92,21 @@ class Dashboard {
 
     async fetchSyncLog() {
         try {
-            const timeFilter = document.getElementById('log-time-filter');
-            const sourceFilter = document.getElementById('log-source-filter');
-            const targetFilter = document.getElementById('log-target-filter');
-            const typeFilter = document.getElementById('log-type-filter');
-            const itemFilter = document.getElementById('log-item-filter');
-
             const params = new URLSearchParams();
             params.append('limit', '100');
 
-            if (timeFilter && timeFilter.value) {
-                params.append('since_minutes', timeFilter.value);
-            }
-            if (sourceFilter && sourceFilter.value) {
-                params.append('source_server', sourceFilter.value);
-            }
-            if (targetFilter && targetFilter.value) {
-                params.append('target_server', targetFilter.value);
-            }
-            if (typeFilter && typeFilter.value) {
-                params.append('event_type', typeFilter.value);
-            }
-            if (itemFilter && itemFilter.value.trim()) {
-                params.append('item_name', itemFilter.value.trim());
+            const filters = {
+                'log-time-filter': 'since_minutes',
+                'log-source-filter': 'source_server',
+                'log-target-filter': 'target_server',
+                'log-type-filter': 'event_type',
+                'log-item-filter': 'item_name'
+            };
+
+            for (const [elementId, paramName] of Object.entries(filters)) {
+                const el = document.getElementById(elementId);
+                const value = el?.value?.trim();
+                if (value) params.append(paramName, value);
             }
 
             const response = await fetch(`/api/sync-log?${params.toString()}`);
@@ -82,6 +116,8 @@ class Dashboard {
             return [];
         }
     }
+
+    // === Formatters ===
 
     formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
@@ -107,9 +143,7 @@ class Dashboard {
      */
     parseUtcDate(dateString) {
         if (!dateString) return null;
-        // Normalize format and add Z suffix for UTC
         const normalized = dateString.replace(' ', 'T');
-        // Add Z only if not already present
         const utcString = normalized.endsWith('Z') ? normalized : normalized + 'Z';
         return new Date(utcString);
     }
@@ -147,12 +181,20 @@ class Dashboard {
         return error.slice(0, 47) + '...';
     }
 
-    escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+    formatTimeAgo(dateString) {
+        if (!dateString) return 'Never';
+        const date = this.parseUtcDate(dateString);
+        if (!date || isNaN(date.getTime())) return 'Invalid';
+
+        const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+        if (seconds < 0) return 'Just now';
+        if (seconds < 60) return `${seconds}s ago`;
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
     }
+
+    // === UI Update Methods ===
 
     updateUI(status, events, waitingEvents) {
         if (!status) return;
@@ -164,7 +206,7 @@ class Dashboard {
 
         // Uptime and version
         document.getElementById('uptime').textContent = this.formatUptime(status.uptime_seconds);
-        document.getElementById('version').textContent = `${status.version}`;
+        document.getElementById('version').textContent = status.version;
 
         // Servers
         this.updateServers(status.servers);
@@ -184,98 +226,62 @@ class Dashboard {
         this.updateWaitingEvents(waitingEvents);
     }
 
-    updateSyncLog(logs) {
-        const container = document.getElementById('sync-log');
-        if (logs.length === 0) {
-            container.innerHTML = '<div class="empty-state">No log entries</div>';
+    updateServers(servers) {
+        const container = document.getElementById('servers-list');
+        container.innerHTML = '';
+
+        if (servers.length === 0) {
+            this.showEmpty(container, 'No servers configured');
             return;
         }
 
-        const entries = logs.map(log => {
-            const time = this.formatTime(log.created_at);
-            const icon = log.success ? '✓' : '✗';
-            const iconClass = log.success ? 'success' : 'error';
-            const entryClass = log.success ? 'success-entry' : 'error-entry';
-            const messageClass = log.success ? '' : 'error';
+        for (const server of servers) {
+            const item = this.cloneTemplate('tpl-server-item');
 
-            // Build item info display
-            const itemName = log.item_name ? this.escapeHtml(log.item_name) : '';
-            const syncedValue = log.synced_value ? this.escapeHtml(log.synced_value) : '';
-            const itemInfo = itemName ? `<span class="log-item">${itemName}</span>` : '';
+            this.setField(item, 'name', server.name);
+            this.setField(item, 'url', server.url);
 
-            // Detect if this was a skip (already set) vs actual sync
-            const isSkipped = syncedValue.includes('already set') ||
-                syncedValue.includes('target >=') ||
-                syncedValue.includes('target newer');
-            const valueClass = isSkipped ? 'log-value skipped' : 'log-value';
-            const valueInfo = syncedValue ? `<span class="${valueClass}">${syncedValue}</span>` : '';
+            const versionEl = this.setField(item, 'version', server.version);
+            if (!server.version) versionEl.style.display = 'none';
 
-            return `
-                <div class="log-entry ${entryClass}">
-                    <div class="log-icon ${iconClass}">${icon}</div>
-                    <div class="log-time">${time}</div>
-                    <div class="log-content">
-                        <div class="log-header">
-                            <span class="log-type">${this.escapeHtml(log.event_type)}</span>
-                            <span class="log-flow">${this.escapeHtml(log.source_server)} → ${this.escapeHtml(log.target_server)}</span>
-                            <span class="log-user">@${this.escapeHtml(log.username)}</span>
-                            ${itemInfo}
-                        </div>
-                        <div class="log-details">
-                            ${valueInfo}
-                            <span class="log-message ${messageClass}">${this.escapeHtml(log.message)}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
+            const noauthEl = item.querySelector('[data-field="noauth"]');
+            if (server.passwordless) noauthEl.style.display = '';
 
-        container.innerHTML = `<div class="log-container">${entries}</div>`;
+            const statusEl = item.querySelector('[data-field="status"]');
+            statusEl.classList.add(server.healthy ? 'online' : 'offline');
+
+            container.appendChild(item);
+        }
     }
 
     updateServerFilters(servers) {
         const sourceFilter = document.getElementById('log-source-filter');
         const targetFilter = document.getElementById('log-target-filter');
-
         if (!sourceFilter || !targetFilter) return;
 
-        // Preserve current selections
         const currentSource = sourceFilter.value;
         const currentTarget = targetFilter.value;
 
-        // Update options
-        const serverOptions = servers.map(s =>
-            `<option value="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</option>`
-        ).join('');
+        // Clear and rebuild options
+        for (const select of [sourceFilter, targetFilter]) {
+            const defaultText = select === sourceFilter ? 'All sources' : 'All targets';
+            select.innerHTML = '';
 
-        sourceFilter.innerHTML = '<option value="">All sources</option>' + serverOptions;
-        targetFilter.innerHTML = '<option value="">All targets</option>' + serverOptions;
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = defaultText;
+            select.appendChild(defaultOpt);
 
-        // Restore selections
-        sourceFilter.value = currentSource;
-        targetFilter.value = currentTarget;
-    }
-
-    updateServers(servers) {
-        const serversList = document.getElementById('servers-list');
-        if (servers.length === 0) {
-            serversList.innerHTML = '<div class="empty-state">No servers configured</div>';
-            return;
+            for (const s of servers) {
+                const opt = document.createElement('option');
+                opt.value = s.name;
+                opt.textContent = s.name;
+                select.appendChild(opt);
+            }
         }
 
-        serversList.innerHTML = servers.map(s => `
-            <div class="server-item">
-                <div class="server-info">
-                    <span class="server-name">${this.escapeHtml(s.name)}</span>
-                    <span class="server-url">${this.escapeHtml(s.url)}</span>
-                </div>
-                <div class="server-status">
-                    ${s.version ? `<span class="tag tag-version">${this.escapeHtml(s.version)}</span>` : ''}
-                    ${s.passwordless ? '<span class="tag">NO AUTH</span>' : ''}
-                    <span class="status-dot ${s.healthy ? 'online' : 'offline'}"></span>
-                </div>
-            </div>
-        `).join('');
+        sourceFilter.value = currentSource;
+        targetFilter.value = currentTarget;
     }
 
     updateQueueStats(queue) {
@@ -296,23 +302,27 @@ class Dashboard {
 
         document.getElementById('user-mappings').textContent = database.user_mappings_count;
         document.getElementById('sync-log-count').textContent = database.sync_log_entries;
-
-        // Item cache stats
         document.getElementById('item-cache-total').textContent = database.item_cache_total || 0;
-
-        // Database size
         document.getElementById('db-size').textContent = this.formatBytes(database.database_size_bytes || 0);
 
         // Per-server cache details
         const cacheDetails = document.getElementById('item-cache-details');
         if (cacheDetails && database.item_cache_by_server) {
+            cacheDetails.innerHTML = '';
             const servers = Object.entries(database.item_cache_by_server);
+
             if (servers.length > 0) {
-                cacheDetails.innerHTML = servers.map(([server, count]) =>
-                    `<span class="cache-server">${this.escapeHtml(server)}: <strong>${count}</strong></span>`
-                ).join('');
+                for (const [server, count] of servers) {
+                    const item = this.cloneTemplate('tpl-cache-server');
+                    this.setField(item, 'name', server);
+                    this.setField(item, 'count', count);
+                    cacheDetails.appendChild(item);
+                }
             } else {
-                cacheDetails.innerHTML = '<span class="cache-empty">No cached items</span>';
+                const span = document.createElement('span');
+                span.className = 'cache-empty';
+                span.textContent = 'No cached items';
+                cacheDetails.appendChild(span);
             }
         }
     }
@@ -321,124 +331,192 @@ class Dashboard {
         document.getElementById('sync-successful').textContent = syncStats.successful;
         document.getElementById('sync-failed').textContent = syncStats.failed;
         document.getElementById('total-synced').textContent = syncStats.total_synced;
-        document.getElementById('last-sync').textContent = this.formatDateShort(syncStats.last_sync_at);
+        document.getElementById('last-sync').textContent = this.formatTimeAgo(syncStats.last_sync_at);
+    }
+
+    updateSyncLog(logs) {
+        const container = document.getElementById('sync-log');
+        container.innerHTML = '';
+
+        if (logs.length === 0) {
+            this.showEmpty(container, 'No log entries');
+            return;
+        }
+
+        const logContainer = document.createElement('div');
+        logContainer.className = 'log-container';
+
+        for (const log of logs) {
+            const entry = this.cloneTemplate('tpl-log-entry');
+
+            // Set entry classes
+            entry.classList.add(log.success ? 'success-entry' : 'error-entry');
+
+            // Icon
+            const iconEl = this.setField(entry, 'icon', log.success ? '✓' : '✗');
+            iconEl.classList.add(log.success ? 'success' : 'error');
+
+            // Basic fields
+            this.setField(entry, 'time', this.formatTime(log.created_at));
+            this.setField(entry, 'type', log.event_type);
+            this.setField(entry, 'flow', `${log.source_server} → ${log.target_server}`);
+            this.setField(entry, 'user', `@${log.username}`);
+
+            // Item name (hide if empty)
+            const itemEl = this.setField(entry, 'item', log.item_name || '');
+            if (!log.item_name) itemEl.style.display = 'none';
+
+            // Synced value with skip detection
+            const valueEl = this.setField(entry, 'value', log.synced_value || '');
+            if (!log.synced_value) {
+                valueEl.style.display = 'none';
+            } else {
+                const isSkipped = log.synced_value.includes('already set') ||
+                    log.synced_value.includes('target >=') ||
+                    log.synced_value.includes('target newer');
+                if (isSkipped) valueEl.classList.add('skipped');
+            }
+
+            // Message
+            const messageEl = this.setField(entry, 'message', log.message);
+            if (!log.success) messageEl.classList.add('error');
+
+            logContainer.appendChild(entry);
+        }
+
+        container.appendChild(logContainer);
     }
 
     updatePendingEvents(events) {
         const container = document.getElementById('pending-events');
+        container.innerHTML = '';
+
         if (events.length === 0) {
-            container.innerHTML = '<div class="empty-state">No pending events</div>';
+            this.showEmpty(container, 'No pending events');
             return;
         }
 
-        container.innerHTML = `
-            <table class="events-table">
-                <thead>
-                    <tr>
-                        <th>Type</th>
-                        <th>Item</th>
-                        <th>User</th>
-                        <th>Source → Target</th>
-                        <th>Retries</th>
-                        <th>Created</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${events.map(e => `
-                        <tr>
-                            <td>${this.escapeHtml(e.event_type)}</td>
-                            <td>${this.escapeHtml(e.item_name) || '-'}</td>
-                            <td>${this.escapeHtml(e.username)}</td>
-                            <td>${this.escapeHtml(e.source_server)} → ${this.escapeHtml(e.target_server)}</td>
-                            <td>${e.retry_count}</td>
-                            <td>${this.formatDate(e.created_at)}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
-    }
+        const table = this.cloneTemplate('tpl-events-table');
+        const thead = table.querySelector('thead');
+        const tbody = table.querySelector('tbody');
 
-    updateUserMappings(data) {
-        const container = document.getElementById('user-mappings-table');
-        if (!data.users || data.users.length === 0) {
-            container.innerHTML = '<div class="empty-state">No users found</div>';
-            return;
+        // Build header
+        const headerRow = document.createElement('tr');
+        for (const text of ['Type', 'Item', 'User', 'Source → Target', 'Retries', 'Created']) {
+            const th = document.createElement('th');
+            th.textContent = text;
+            headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+
+        // Build rows
+        for (const e of events) {
+            const row = this.cloneTemplate('tpl-pending-row');
+            this.setField(row, 'type', e.event_type);
+            this.setField(row, 'item', e.item_name || '-');
+            this.setField(row, 'user', e.username);
+            this.setField(row, 'flow', `${e.source_server} → ${e.target_server}`);
+            this.setField(row, 'retries', e.retry_count);
+            this.setField(row, 'created', this.formatDate(e.created_at));
+            tbody.appendChild(row);
         }
 
-        const headers = data.servers.map(s => `<th class="user-server-header">${this.escapeHtml(s)}</th>`).join('');
-        const rows = data.users.map(user => {
-            const cells = data.servers.map(server => {
-                const hasMapping = user.servers[server] !== null;
-                const icon = hasMapping ? '✓' : '—';
-                const className = hasMapping ? 'user-present' : 'user-absent';
-                const title = hasMapping ? `ID: ${user.servers[server]}` : 'Not present';
-                return `<td class="${className}" title="${title}">${icon}</td>`;
-            }).join('');
-            return `
-                <tr>
-                    <td class="user-name-cell">
-                        <span class="user-avatar">${user.username.charAt(0).toUpperCase()}</span>
-                        <span class="user-name">${this.escapeHtml(user.username)}</span>
-                    </td>
-                    ${cells}
-                </tr>
-            `;
-        }).join('');
-
-        container.innerHTML = `
-            <table class="users-table">
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        ${headers}
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rows}
-                </tbody>
-            </table>
-        `;
+        container.appendChild(table);
     }
 
     updateWaitingEvents(waitingEvents) {
         const container = document.getElementById('waiting-events');
+        container.innerHTML = '';
+
         if (waitingEvents.length === 0) {
-            container.innerHTML = '<div class="empty-state">No events waiting for item import</div>';
+            this.showEmpty(container, 'No events waiting for item import');
             return;
         }
 
-        container.innerHTML = `
-            <table class="events-table">
-                <thead>
-                    <tr>
-                        <th>Type</th>
-                        <th>Item</th>
-                        <th>Path</th>
-                        <th>Target</th>
-                        <th>Attempt</th>
-                        <th>Next Retry</th>
-                        <th>Error</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${waitingEvents.map(e => {
+        const table = this.cloneTemplate('tpl-events-table');
+        const thead = table.querySelector('thead');
+        const tbody = table.querySelector('tbody');
+
+        // Build header
+        const headerRow = document.createElement('tr');
+        for (const text of ['Type', 'Item', 'Path', 'Target', 'Attempt', 'Next Retry', 'Error']) {
+            const th = document.createElement('th');
+            th.textContent = text;
+            headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+
+        // Build rows
+        for (const e of waitingEvents) {
+            const row = this.cloneTemplate('tpl-waiting-row');
             const maxDisplay = e.item_not_found_max === -1 ? '∞' : e.item_not_found_max;
-            return `
-                        <tr>
-                            <td>${this.escapeHtml(e.event_type)}</td>
-                            <td>${this.escapeHtml(e.item_name) || '-'}</td>
-                            <td title="${this.escapeHtml(e.item_path) || ''}">${this.escapeHtml(this.truncatePath(e.item_path))}</td>
-                            <td>${this.escapeHtml(e.target_server)}</td>
-                            <td>${e.item_not_found_count} / ${maxDisplay}</td>
-                            <td>${this.formatDate(e.next_retry_at)}</td>
-                            <td title="${this.escapeHtml(e.last_error) || ''}">${this.escapeHtml(this.truncateError(e.last_error))}</td>
-                        </tr>
-                    `}).join('')}
-                </tbody>
-            </table>
-        `;
+
+            this.setField(row, 'type', e.event_type);
+            this.setField(row, 'item', e.item_name || '-');
+
+            const pathCell = row.querySelector('[data-field="path"]');
+            pathCell.textContent = this.truncatePath(e.item_path);
+            pathCell.title = e.item_path || '';
+
+            this.setField(row, 'target', e.target_server);
+            this.setField(row, 'attempt', `${e.item_not_found_count} / ${maxDisplay}`);
+            this.setField(row, 'next-retry', this.formatDate(e.next_retry_at));
+
+            const errorCell = row.querySelector('[data-field="error"]');
+            errorCell.textContent = this.truncateError(e.last_error);
+            errorCell.title = e.last_error || '';
+
+            tbody.appendChild(row);
+        }
+
+        container.appendChild(table);
     }
+
+    updateUserMappings(data) {
+        const container = document.getElementById('user-mappings-table');
+        container.innerHTML = '';
+
+        if (!data.users || data.users.length === 0) {
+            this.showEmpty(container, 'No users found');
+            return;
+        }
+
+        const table = this.cloneTemplate('tpl-users-table');
+        const thead = table.querySelector('thead tr');
+        const tbody = table.querySelector('tbody');
+
+        // Add server headers
+        for (const server of data.servers) {
+            const th = document.createElement('th');
+            th.className = 'user-server-header';
+            th.textContent = server;
+            thead.appendChild(th);
+        }
+
+        // Build user rows
+        for (const user of data.users) {
+            const row = this.cloneTemplate('tpl-user-row');
+            this.setField(row, 'avatar', user.username.charAt(0).toUpperCase());
+            this.setField(row, 'name', user.username);
+
+            // Add server cells
+            for (const server of data.servers) {
+                const cell = document.createElement('td');
+                const hasMapping = user.servers[server] !== null;
+
+                cell.textContent = hasMapping ? '✓' : '—';
+                cell.className = hasMapping ? 'user-present' : 'user-absent';
+                cell.title = hasMapping ? `ID: ${user.servers[server]}` : 'Not present';
+                row.appendChild(cell);
+            }
+
+            tbody.appendChild(row);
+        }
+
+        container.appendChild(table);
+    }
+
+    // === Lifecycle ===
 
     async refresh() {
         const btn = document.querySelector('.refresh-btn');

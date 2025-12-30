@@ -184,6 +184,94 @@
         </div>
     </div>
 
+    <!-- Templates -->
+    <template id="tpl-server-item">
+        <div class="server-item">
+            <div class="server-info">
+                <span class="server-name" data-field="name"></span>
+                <span class="server-url" data-field="url"></span>
+            </div>
+            <div class="server-status">
+                <span class="tag" data-field="noauth" style="display:none">NO AUTH</span>
+                <span class="tag tag-version" data-field="version"></span>
+                <span class="status-dot" data-field="status"></span>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-log-entry">
+        <div class="log-entry">
+            <div class="log-icon" data-field="icon"></div>
+            <div class="log-time" data-field="time"></div>
+            <div class="log-content">
+                <div class="log-header">
+                    <span class="log-type" data-field="type"></span>
+                    <span class="log-flow" data-field="flow"></span>
+                    <span class="log-user" data-field="user"></span>
+                    <span class="log-item" data-field="item"></span>
+                </div>
+                <div class="log-details">
+                    <span class="log-value" data-field="value"></span>
+                    <span class="log-message" data-field="message"></span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-pending-row">
+        <tr>
+            <td data-field="type"></td>
+            <td data-field="item"></td>
+            <td data-field="user"></td>
+            <td data-field="flow"></td>
+            <td data-field="retries"></td>
+            <td data-field="created"></td>
+        </tr>
+    </template>
+
+    <template id="tpl-waiting-row">
+        <tr>
+            <td data-field="type"></td>
+            <td data-field="item"></td>
+            <td data-field="path"></td>
+            <td data-field="target"></td>
+            <td data-field="attempt"></td>
+            <td data-field="next-retry"></td>
+            <td data-field="error"></td>
+        </tr>
+    </template>
+
+    <template id="tpl-user-row">
+        <tr>
+            <td class="user-name-cell">
+                <span class="user-avatar" data-field="avatar"></span>
+                <span class="user-name" data-field="name"></span>
+            </td>
+        </tr>
+    </template>
+
+    <template id="tpl-user-cell">
+        <td></td>
+    </template>
+
+    <template id="tpl-cache-server">
+        <span class="cache-server"><span data-field="name"></span>: <strong data-field="count"></strong></span>
+    </template>
+
+    <template id="tpl-events-table">
+        <table class="events-table">
+            <thead></thead>
+            <tbody></tbody>
+        </table>
+    </template>
+
+    <template id="tpl-users-table">
+        <table class="users-table">
+            <thead><tr><th>User</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </template>
+
     <script src="/static/js/app.js"></script>
 </body>
 </html>
