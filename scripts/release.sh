@@ -10,6 +10,7 @@
 #
 # Options:
 #   -m, --message  Custom message for the tag (default: "Release <version>")
+#   --force        Delete existing tag and recreate it
 #   --dry-run      Show what would be done without making changes
 #   --no-push      Create commit and tag but don't push
 #   --help         Show this help message
@@ -30,6 +31,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Flags
 DRY_RUN=false
 NO_PUSH=false
+FORCE=false
 TAG_MESSAGE=""
 
 # Files to update with their sed patterns
@@ -54,6 +56,7 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -m, --message   Custom message for the tag (default: 'Release <version>')"
+    echo "  --force         Delete existing tag and recreate it"
     echo "  --dry-run       Show what would be done without making changes"
     echo "  --no-push       Create commit and tag but don't push"
     echo "  --help          Show this help message"
@@ -61,6 +64,7 @@ usage() {
     echo "Examples:"
     echo "  $0 0.0.2                           # Release version 0.0.2"
     echo "  $0 0.0.8 -m 'Fix progress sync'    # Release with custom message"
+    echo "  $0 --force 0.0.8                   # Recreate existing release"
     echo "  $0 --dry-run 1.0.0                 # Preview release 1.0.0"
     echo "  $0 --no-push 0.1.0                 # Create release locally only"
 }
@@ -132,9 +136,36 @@ check_tag_exists() {
     local tag="v$version"
 
     if git rev-parse "$tag" >/dev/null 2>&1; then
-        log_error "Tag $tag already exists"
-        log_error "Delete it first with: git tag -d $tag && git push origin :refs/tags/$tag"
-        exit 1
+        if $FORCE; then
+            log_warn "Tag $tag exists, will be deleted (--force)"
+        else
+            log_error "Tag $tag already exists"
+            log_error "Use --force to delete and recreate, or delete manually:"
+            log_error "  git tag -d $tag && git push origin :refs/tags/$tag"
+            exit 1
+        fi
+    fi
+}
+
+delete_existing_tag() {
+    local version=$1
+    local tag="v$version"
+
+    if git rev-parse "$tag" >/dev/null 2>&1; then
+        if $DRY_RUN; then
+            log_dry "Would delete local tag $tag"
+            log_dry "Would delete remote tag $tag"
+        else
+            log_info "Deleting local tag $tag..."
+            git tag -d "$tag"
+            log_success "Deleted local tag"
+
+            if git ls-remote --tags origin | grep -q "refs/tags/$tag"; then
+                log_info "Deleting remote tag $tag..."
+                git push origin :refs/tags/"$tag" 2>/dev/null || true
+                log_success "Deleted remote tag"
+            fi
+        fi
     fi
 }
 
@@ -260,6 +291,10 @@ main() {
                 NO_PUSH=true
                 shift
                 ;;
+            --force|-f)
+                FORCE=true
+                shift
+                ;;
             -m|--message)
                 if [[ -z "${2:-}" ]]; then
                     log_error "Option $1 requires a message argument"
@@ -312,11 +347,17 @@ main() {
     log_info "New version:     $version"
     $DRY_RUN && log_warn "DRY RUN MODE - no changes will be made"
     $NO_PUSH && log_warn "NO PUSH MODE - changes won't be pushed"
+    $FORCE && log_warn "FORCE MODE - existing tag will be deleted"
     echo ""
 
     # Pre-flight checks
     check_git_status
     check_tag_exists "$version"
+
+    # Delete existing tag if --force
+    if $FORCE; then
+        delete_existing_tag "$version"
+    fi
 
     # Execute release steps
     update_all_versions "$version"
