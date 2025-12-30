@@ -251,7 +251,8 @@ create_commit_and_tag() {
     fi
 
     log_info "Creating tag $tag..."
-    git tag -a "$tag" -m "$message"
+    # Use --cleanup=verbatim to preserve lines starting with # (markdown headers)
+    git tag -a "$tag" -m "$message" --cleanup=verbatim
     log_success "Created tag $tag with message: '$message'"
 }
 

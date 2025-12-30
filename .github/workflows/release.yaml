@@ -35,6 +35,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
+
+      - name: Fetch tag annotations
+        run: |
+          # Force fetch tags with annotations (checkout may not fetch them properly)
+          git fetch --tags --force
 
       - name: Configure Git
         run: |
@@ -58,7 +64,15 @@ jobs:
       - name: Get tag message
         id: tag_message
         run: |
-          TAG_MESSAGE=$(git tag -l --format='%(contents)' ${GITHUB_REF#refs/tags/})
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          # Get the tag message using git for-each-ref (more reliable than git tag -l)
+          TAG_MESSAGE=$(git for-each-ref --format='%(contents)' "refs/tags/$TAG_NAME")
+
+          # Fallback: if empty, try git show
+          if [ -z "$TAG_MESSAGE" ]; then
+            TAG_MESSAGE=$(git show -s --format=%B "$TAG_NAME" 2>/dev/null || echo "Release $TAG_NAME")
+          fi
+
           # Use delimiter for multiline output
           echo "message<<EOF" >> $GITHUB_OUTPUT
           echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
