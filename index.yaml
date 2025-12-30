@@ -34,6 +34,44 @@ entries:
     version: 0.1.1
   - annotations:
       artifacthub.io/category: media
+      artifacthub.io/containsSecurityUpdates: "false"
+      artifacthub.io/images: |
+        - name: jellyfin-db-sync
+          image: ghcr.io/lnking81/jellyfin-db-sync:0.0.6
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/lnking81/jellyfin-db-sync#readme
+        - name: Source
+          url: https://github.com/lnking81/jellyfin-db-sync
+    apiVersion: v2
+    appVersion: 0.0.7
+    created: "2025-12-30T00:16:06.605795892Z"
+    description: Bidirectional sync service for multiple Jellyfin instances
+    digest: 00f52ba30ad45a6e352ff1b8b7578bab897758dfa613f41f72783029f855e541
+    home: https://github.com/lnking81/jellyfin-db-sync
+    icon: https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg
+    keywords:
+    - jellyfin
+    - media
+    - sync
+    - plex
+    - emby
+    maintainers:
+    - name: lnking81
+      url: https://github.com/lnking81
+    name: jellyfin-db-sync
+    sources:
+    - https://github.com/lnking81/jellyfin-db-sync
+    type: application
+    urls:
+    - https://github.com/lnking81/jellyfin-db-sync/releases/download/v0.0.7/jellyfin-db-sync-0.0.7.tgz
+    version: 0.0.7
+  - annotations:
+      artifacthub.io/category: media
       artifacthub.io/license: MIT
       artifacthub.io/links: |
         - name: Documentation
@@ -42,7 +80,7 @@ entries:
           url: https://github.com/lnking81/jellyfin-db-sync
     apiVersion: v2
     appVersion: 0.0.6
-    created: "2025-12-29T23:42:24.268609048Z"
+    created: "2025-12-30T00:16:06.605020512Z"
     description: Bidirectional sync service for multiple Jellyfin instances
     digest: b52e6dc9ea85ef6b66fc33fd6020497d07f6ef20903e801aecbfbc2526fced3a
     home: https://github.com/lnking81/jellyfin-db-sync
@@ -61,7 +99,7 @@ entries:
     - https://github.com/lnking81/jellyfin-db-sync
     type: application
     urls:
-    - https://github.com/lnking81/jellyfin-db-sync/releases/download/v0.0.6/jellyfin-db-sync-0.0.6.tgz
+    - https://github.com/lnking81/jellyfin-db-sync/releases/download/v0.0.7/jellyfin-db-sync-0.0.6.tgz
     version: 0.0.6
   - annotations:
       artifacthub.io/category: media
@@ -218,4 +256,4 @@ entries:
     urls:
     - https://github.com/lnking81/jellyfin-db-sync/releases/download/jellyfin-db-sync-0.0.1/jellyfin-db-sync-0.0.1.tgz
     version: 0.0.1
-generated: "2025-12-29T23:42:24.267704815Z"
+generated: "2025-12-30T00:16:06.603996737Z"
