@@ -825,21 +825,26 @@ class Database:
     async def get_recent_sync_log(
         self,
         limit: int = 100,
+        offset: int = 0,
         since_minutes: int | None = None,
         source_server: str | None = None,
         target_server: str | None = None,
         event_type: str | None = None,
         item_name: str | None = None,
-    ) -> list[dict[str, object]]:
+    ) -> tuple[list[dict[str, object]], int]:
         """Get recent sync log entries with optional filtering.
 
         Args:
             limit: Maximum number of entries to return
+            offset: Number of entries to skip (for pagination)
             since_minutes: Only return entries from the last N minutes (default: all)
             source_server: Filter by source server name (exact match)
             target_server: Filter by target server name (exact match)
             event_type: Filter by event type (exact match)
             item_name: Filter by item name (case-insensitive substring search)
+
+        Returns:
+            Tuple of (entries list, total count matching filters)
         """
         assert self._db is not None
 
@@ -871,19 +876,27 @@ class Database:
             conditions.append("item_name LIKE ?")
             params.append(f"%{item_name}%")
 
-        # Build query
+        # Build WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        # Get total count first
+        count_query = f"SELECT COUNT(*) FROM sync_log WHERE {where_clause}"
+        async with self._db.execute(count_query, params) as cursor:
+            row = await cursor.fetchone()
+            total_count = row[0] if row else 0
+
+        # Build data query with pagination
         query = f"""
             SELECT id, event_type, source_server, target_server,
                    username, item_id, item_name, synced_value, success, message, created_at
             FROM sync_log
             WHERE {where_clause}
             ORDER BY created_at DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
         """
-        params.append(limit)
+        data_params = [*params, limit, offset]
 
-        async with self._db.execute(query, params) as cursor:
+        async with self._db.execute(query, data_params) as cursor:
             async for row in cursor:
                 entries.append(
                     {
@@ -905,7 +918,7 @@ class Database:
                     }
                 )
 
-        return entries
+        return entries, total_count
 
     # ========== Item Path Cache Methods ==========
 

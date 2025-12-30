@@ -3,12 +3,63 @@
  * Uses HTML <template> elements for clean separation of markup and logic
  */
 
+const STORAGE_KEY = 'jellyfin-db-sync-log-filters';
+
 class Dashboard {
     constructor() {
         this.refreshInterval = 10000;
         this.intervalId = null;
         this.templates = {};
+
+        // Pagination state
+        this.logPage = 0;
+        this.logTotal = 0;
+        this.logPageSize = 50;
     }
+
+    // === Storage ===
+
+    loadFilters() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const filters = JSON.parse(saved);
+                for (const [id, value] of Object.entries(filters)) {
+                    const el = document.getElementById(id);
+                    if (el) el.value = value;
+                }
+                // Restore page size
+                if (filters['log-page-size']) {
+                    this.logPageSize = parseInt(filters['log-page-size'], 10) || 50;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load filters from storage:', e);
+        }
+    }
+
+    saveFilters() {
+        try {
+            const filterIds = [
+                'log-item-filter',
+                'log-source-filter',
+                'log-target-filter',
+                'log-type-filter',
+                'log-time-filter',
+                'log-page-size'
+            ];
+            const filters = {};
+            for (const id of filterIds) {
+                const el = document.getElementById(id);
+                if (el) filters[id] = el.value;
+            }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
+        } catch (e) {
+            console.warn('Failed to save filters to storage:', e);
+        }
+    }
+
+    // === Template helpers ===
 
     /**
      * Get and cache a template by ID
@@ -93,7 +144,8 @@ class Dashboard {
     async fetchSyncLog() {
         try {
             const params = new URLSearchParams();
-            params.append('limit', '100');
+            params.append('limit', this.logPageSize.toString());
+            params.append('offset', (this.logPage * this.logPageSize).toString());
 
             const filters = {
                 'log-time-filter': 'since_minutes',
@@ -113,7 +165,7 @@ class Dashboard {
             return await response.json();
         } catch (e) {
             console.error('Failed to fetch sync log:', e);
-            return [];
+            return { entries: [], total: 0, limit: this.logPageSize, offset: 0 };
         }
     }
 
@@ -334,12 +386,16 @@ class Dashboard {
         document.getElementById('last-sync').textContent = this.formatTimeAgo(syncStats.last_sync_at);
     }
 
-    updateSyncLog(logs) {
+    updateSyncLog(data) {
         const container = document.getElementById('sync-log');
         container.innerHTML = '';
 
+        const logs = data.entries || [];
+        this.logTotal = data.total || 0;
+
         if (logs.length === 0) {
             this.showEmpty(container, 'No log entries');
+            this.updatePagination();
             return;
         }
 
@@ -352,9 +408,38 @@ class Dashboard {
             // Set entry classes
             entry.classList.add(log.success ? 'success-entry' : 'error-entry');
 
-            // Icon
-            const iconEl = this.setField(entry, 'icon', log.success ? '✓' : '✗');
-            iconEl.classList.add(log.success ? 'success' : 'error');
+            // Determine if this was skipped (already set)
+            const isSkipped = log.synced_value && (
+                log.synced_value.includes('already set') ||
+                log.synced_value.includes('target >=') ||
+                log.synced_value.includes('target newer')
+            );
+
+            // Status icon (success/error)
+            const statusIconEl = entry.querySelector('[data-field="status-icon"]');
+            if (log.success) {
+                statusIconEl.innerHTML = '<i data-lucide="circle-check"></i>';
+                statusIconEl.classList.add('success');
+            } else {
+                statusIconEl.innerHTML = '<i data-lucide="circle-x"></i>';
+                statusIconEl.classList.add('error');
+            }
+
+            // Action icon (synced/skipped)
+            const actionIconEl = entry.querySelector('[data-field="action-icon"]');
+            if (isSkipped) {
+                actionIconEl.innerHTML = '<i data-lucide="skip-forward"></i>';
+                actionIconEl.classList.add('skipped');
+                actionIconEl.title = 'Skipped (already set)';
+            } else if (log.success) {
+                actionIconEl.innerHTML = '<i data-lucide="arrow-right-left"></i>';
+                actionIconEl.classList.add('synced');
+                actionIconEl.title = 'Synced';
+            } else {
+                actionIconEl.innerHTML = '<i data-lucide="alert-triangle"></i>';
+                actionIconEl.classList.add('failed');
+                actionIconEl.title = 'Failed';
+            }
 
             // Basic fields
             this.setField(entry, 'time', this.formatTime(log.created_at));
@@ -366,15 +451,12 @@ class Dashboard {
             const itemEl = this.setField(entry, 'item', log.item_name || '');
             if (!log.item_name) itemEl.style.display = 'none';
 
-            // Synced value with skip detection
+            // Synced value
             const valueEl = this.setField(entry, 'value', log.synced_value || '');
             if (!log.synced_value) {
                 valueEl.style.display = 'none';
-            } else {
-                const isSkipped = log.synced_value.includes('already set') ||
-                    log.synced_value.includes('target >=') ||
-                    log.synced_value.includes('target newer');
-                if (isSkipped) valueEl.classList.add('skipped');
+            } else if (isSkipped) {
+                valueEl.classList.add('skipped');
             }
 
             // Message
@@ -385,6 +467,33 @@ class Dashboard {
         }
 
         container.appendChild(logContainer);
+
+        // Re-initialize Lucide icons for dynamically added content
+        if (window.lucide) {
+            window.lucide.createIcons();
+        }
+
+        this.updatePagination();
+    }
+
+    updatePagination() {
+        const totalPages = Math.ceil(this.logTotal / this.logPageSize);
+        const currentPage = this.logPage + 1;
+
+        const prevBtn = document.getElementById('log-prev');
+        const nextBtn = document.getElementById('log-next');
+        const pageInfo = document.getElementById('log-page-info');
+
+        prevBtn.disabled = this.logPage === 0;
+        nextBtn.disabled = currentPage >= totalPages;
+
+        if (this.logTotal === 0) {
+            pageInfo.textContent = 'No entries';
+        } else {
+            const start = this.logPage * this.logPageSize + 1;
+            const end = Math.min(start + this.logPageSize - 1, this.logTotal);
+            pageInfo.textContent = `${start}-${end} of ${this.logTotal}`;
+        }
     }
 
     updatePendingEvents(events) {
@@ -518,10 +627,65 @@ class Dashboard {
 
     // === Lifecycle ===
 
+    setupEventListeners() {
+        // Filter change handlers - reset to page 0 and refresh
+        const filterIds = [
+            'log-item-filter',
+            'log-source-filter',
+            'log-target-filter',
+            'log-type-filter',
+            'log-time-filter'
+        ];
+
+        for (const id of filterIds) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('change', () => {
+                    this.logPage = 0;
+                    this.saveFilters();
+                    this.refreshLogOnly();
+                });
+            }
+        }
+
+        // Page size change
+        const pageSizeEl = document.getElementById('log-page-size');
+        if (pageSizeEl) {
+            pageSizeEl.addEventListener('change', () => {
+                this.logPageSize = parseInt(pageSizeEl.value, 10) || 50;
+                this.logPage = 0;
+                this.saveFilters();
+                this.refreshLogOnly();
+            });
+        }
+
+        // Pagination buttons
+        document.getElementById('log-prev')?.addEventListener('click', () => {
+            if (this.logPage > 0) {
+                this.logPage--;
+                this.refreshLogOnly();
+            }
+        });
+
+        document.getElementById('log-next')?.addEventListener('click', () => {
+            const totalPages = Math.ceil(this.logTotal / this.logPageSize);
+            if (this.logPage + 1 < totalPages) {
+                this.logPage++;
+                this.refreshLogOnly();
+            }
+        });
+    }
+
+    async refreshLogOnly() {
+        const syncLog = await this.fetchSyncLog();
+        this.updateSyncLog(syncLog);
+    }
+
     async refresh() {
         const btn = document.querySelector('.refresh-btn');
         btn.disabled = true;
-        btn.textContent = '↻ Loading...';
+        const icon = btn.querySelector('svg');
+        if (icon) icon.classList.add('spinning');
 
         try {
             const [status, events, waitingEvents, syncLog, userMappings] = await Promise.all([
@@ -537,11 +701,14 @@ class Dashboard {
             this.updateUserMappings(userMappings);
         } finally {
             btn.disabled = false;
-            btn.textContent = '↻ Refresh';
+            const icon = btn.querySelector('svg');
+            if (icon) icon.classList.remove('spinning');
         }
     }
 
     start() {
+        this.loadFilters();
+        this.setupEventListeners();
         this.refresh();
         this.intervalId = setInterval(() => this.refresh(), this.refreshInterval);
     }

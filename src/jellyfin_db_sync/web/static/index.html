@@ -5,17 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jellyfin DB Sync</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
     <div class="container">
         <header>
             <div>
-                <h1>🔄 Jellyfin DB Sync<span class="version" id="version"></span></h1>
+                <h1><i data-lucide="refresh-cw" class="header-icon"></i> Jellyfin DB Sync<span class="version" id="version"></span></h1>
                 <span class="uptime" id="uptime">Loading...</span>
             </div>
             <div class="header-controls">
                 <span class="status-badge" id="overall-status">Loading</span>
-                <button class="refresh-btn" onclick="refreshData()">↻ Refresh</button>
+                <button class="refresh-btn" onclick="refreshData()"><i data-lucide="rotate-cw" class="btn-icon"></i> Refresh</button>
             </div>
         </header>
 
@@ -23,7 +24,7 @@
             <!-- Servers Card -->
             <div class="card">
                 <div class="card-header">
-                    <h2>📺 Jellyfin Servers</h2>
+                    <h2><i data-lucide="monitor" class="card-icon"></i> Jellyfin Servers</h2>
                 </div>
                 <div class="server-list" id="servers-list">
                     <div class="empty-state">Loading...</div>
@@ -33,7 +34,7 @@
             <!-- Queue Status Card -->
             <div class="card">
                 <div class="card-header">
-                    <h2>📋 Sync Queue</h2>
+                    <h2><i data-lucide="list-todo" class="card-icon"></i> Sync Queue</h2>
                 </div>
                 <div class="stats-grid" id="queue-stats">
                     <div class="stat-item">
@@ -62,7 +63,7 @@
             <!-- Database Status Card -->
             <div class="card">
                 <div class="card-header">
-                    <h2>💾 Database</h2>
+                    <h2><i data-lucide="database" class="card-icon"></i> Database</h2>
                 </div>
                 <div class="stats-grid" id="db-stats">
                     <div class="stat-item">
@@ -92,7 +93,7 @@
             <!-- Sync Stats Card -->
             <div class="card">
                 <div class="card-header">
-                    <h2>📊 Sync Statistics</h2>
+                    <h2><i data-lucide="bar-chart-3" class="card-icon"></i> Sync Statistics</h2>
                 </div>
                 <div class="stats-grid">
                     <div class="stat-item">
@@ -117,7 +118,7 @@
             <!-- User Mappings Card -->
             <div class="card">
                 <div class="card-header">
-                    <h2>👥 Users</h2>
+                    <h2><i data-lucide="users" class="card-icon"></i> Users</h2>
                 </div>
                 <div id="user-mappings-table">
                     <div class="empty-state">Loading...</div>
@@ -127,7 +128,7 @@
             <!-- Waiting for Item Events Table -->
             <div class="card">
                 <div class="card-header">
-                    <h2>🔍 Waiting for Item Import</h2>
+                    <h2><i data-lucide="search" class="card-icon"></i> Waiting for Item Import</h2>
                 </div>
                 <div id="waiting-events">
                     <div class="empty-state">Loading...</div>
@@ -137,7 +138,7 @@
             <!-- Pending Events Table -->
             <div class="card full-width">
                 <div class="card-header">
-                    <h2>⏳ Pending Events</h2>
+                    <h2><i data-lucide="clock" class="card-icon"></i> Pending Events</h2>
                 </div>
                 <div id="pending-events">
                     <div class="empty-state">Loading...</div>
@@ -147,16 +148,16 @@
             <!-- Sync Log -->
             <div class="card full-width">
                 <div class="card-header">
-                    <h2>📜 Sync Log</h2>
+                    <h2><i data-lucide="scroll-text" class="card-icon"></i> Sync Log</h2>
                     <div class="log-controls">
-                        <input type="text" id="log-item-filter" placeholder="Search media..." class="log-filter-input" onchange="refreshData()">
-                        <select id="log-source-filter" onchange="refreshData()">
+                        <input type="text" id="log-item-filter" placeholder="Search media..." class="log-filter-input">
+                        <select id="log-source-filter">
                             <option value="">All sources</option>
                         </select>
-                        <select id="log-target-filter" onchange="refreshData()">
+                        <select id="log-target-filter">
                             <option value="">All targets</option>
                         </select>
-                        <select id="log-type-filter" onchange="refreshData()">
+                        <select id="log-type-filter">
                             <option value="">All types</option>
                             <option value="watched">watched</option>
                             <option value="favorite">favorite</option>
@@ -168,17 +169,28 @@
                             <option value="progress">progress</option>
                             <option value="rating">rating</option>
                         </select>
-                        <select id="log-time-filter" onchange="refreshData()">
+                        <select id="log-time-filter">
+                            <option value="">All time</option>
                             <option value="30">Last 30 min</option>
                             <option value="60">Last 1 hour</option>
                             <option value="180">Last 3 hours</option>
                             <option value="1440">Last 24 hours</option>
-                            <option value="">All time</option>
+                        </select>
+                        <select id="log-page-size">
+                            <option value="10" selected>10 per page</option>
+                            <option value="25">25 per page</option>
+                            <option value="50">50 per page</option>
+                            <option value="100">100 per page</option>
                         </select>
                     </div>
                 </div>
                 <div id="sync-log">
                     <div class="empty-state">Loading...</div>
+                </div>
+                <div class="pagination" id="log-pagination">
+                    <button class="pagination-btn" id="log-prev" disabled><i data-lucide="chevron-left"></i> Prev</button>
+                    <span class="pagination-info" id="log-page-info">Page 1</span>
+                    <button class="pagination-btn" id="log-next" disabled>Next <i data-lucide="chevron-right"></i></button>
                 </div>
             </div>
         </div>
@@ -201,7 +213,7 @@
 
     <template id="tpl-log-entry">
         <div class="log-entry">
-            <div class="log-icon" data-field="icon"></div>
+            <div class="log-status-icon" data-field="status-icon"></div>
             <div class="log-time" data-field="time"></div>
             <div class="log-content">
                 <div class="log-header">
@@ -215,6 +227,7 @@
                     <span class="log-message" data-field="message"></span>
                 </div>
             </div>
+            <div class="log-action-icon" data-field="action-icon"></div>
         </div>
     </template>
 
@@ -273,5 +286,6 @@
     </template>
 
     <script src="/static/js/app.js"></script>
+    <script>lucide.createIcons();</script>
 </body>
 </html>
