@@ -241,9 +241,14 @@ create_commit_and_tag() {
             src/jellyfin_db_sync/api/status.py \
             README.md
 
-    log_info "Creating commit..."
-    git commit -m "chore: release $version"
-    log_success "Created commit"
+    # Check if there are staged changes to commit
+    if git diff --cached --quiet; then
+        log_warn "No version changes to commit (already at version $version)"
+    else
+        log_info "Creating commit..."
+        git commit -m "chore: release $version"
+        log_success "Created commit"
+    fi
 
     log_info "Creating tag $tag..."
     git tag -a "$tag" -m "$message"
