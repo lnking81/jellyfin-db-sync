@@ -188,8 +188,9 @@ class TestEventQueue:
         assert len(events) == 0
 
         # Sync log should have failure entry
-        entries = await db.get_recent_sync_log(limit=10)
+        entries, total = await db.get_recent_sync_log(limit=10)
         assert len(entries) == 1
+        assert total == 1
         assert entries[0]["success"] is False
         assert "Failed after 2 retries" in entries[0]["message"]
 
@@ -394,9 +395,10 @@ class TestQueueStatistics:
         await db.log_sync("watched", "wan", "lan", "user1", "item1", True, "msg1")
         await db.log_sync("favorite", "wan", "lan", "user2", "item2", False, "msg2")
 
-        entries = await db.get_recent_sync_log(limit=10)
+        entries, total = await db.get_recent_sync_log(limit=10)
 
         assert len(entries) == 2
+        assert total == 2
         # Should return 2 entries (order may vary if timestamps are identical)
         event_types = {e["event_type"] for e in entries}
         assert "watched" in event_types

@@ -108,8 +108,9 @@ async def test_sync_log(db: Database):
     log_count = await db.get_sync_log_count()
     assert log_count == 1
 
-    entries = await db.get_recent_sync_log(limit=10)
+    entries, total = await db.get_recent_sync_log(limit=10)
     assert len(entries) == 1
+    assert total == 1
     assert entries[0]["success"] is True
 
 
