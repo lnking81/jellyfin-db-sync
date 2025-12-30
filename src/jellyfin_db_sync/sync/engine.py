@@ -740,16 +740,10 @@ class SyncEngine:
                         return True, f"subtitle_stream={desired} (already set)"
 
                 case SyncEventType.PROGRESS:
-                    current = current_user_data.get("PlaybackPositionTicks", 0)
-                    desired = event_data.get("position_ticks", 0)
-                    # Only sync if source position is ahead of target
-                    if current >= desired:
-                        logger.debug(
-                            "[SMART SYNC] Skipping PROGRESS: target=%d >= source=%d",
-                            current,
-                            desired,
-                        )
-                        return True, f"position={self._format_ticks(current)} (target >= source)"
+                    # No smart sync for PROGRESS - always sync the latest user action
+                    # If user rewinds, that's intentional and should be synced
+                    # Cooldown mechanism already prevents sync loops
+                    pass
 
                 case SyncEventType.RATING:
                     current = current_user_data.get("Rating")
