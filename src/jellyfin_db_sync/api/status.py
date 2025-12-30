@@ -152,7 +152,7 @@ async def get_status(request: Request) -> OverallStatus:
     return OverallStatus(
         status=status,
         uptime_seconds=uptime,
-        version="0.0.7",
+        version="0.0.8",
         servers=servers,
         queue=queue,
         database=db_status,
